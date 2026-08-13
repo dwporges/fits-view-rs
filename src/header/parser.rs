@@ -2,66 +2,12 @@ use anyhow::{Context, Result, bail};
 
 use crate::constants::{FITS_BLOCKSIZE, FITS_CARDSIZE};
 use crate::errors::FitsError;
-use crate::header::{BasicFitsInfo, FitsHeader};
+use crate::header::{BasicHDUInfo, FitsHeader};
 use std::fs;
 
-pub fn get_hdu<'a>(data: &'a [u8], header_n: usize) -> Result<&'a [u8]> {
-    let mut current_ptr = 0;
-
-    for i in 0..=header_n {
-        if current_ptr >= data.len() {
-            bail!("Data pointer out of bounds for remaining data (could not find specified hdu)");
-        }
-
-        let remaining = &data[current_ptr..];
-
-        let info = BasicFitsInfo::from_block(remaining)?;
-
-        let hdu_end_block_idx = find_end_block(remaining)?;
-        let header_size = (hdu_end_block_idx + 1) * FITS_BLOCKSIZE;
-        let header_bytes = &remaining[..header_size];
-
-        let bitpix: isize = info
-            .bitpix
-            .value
-            .context(format!("Could not find BITPIX header in hdu {}", header_n))?
-            as isize;
-        let naxis: usize = info.naxis;
-
-        let num_pixels: usize = match naxis {
-            0 => 0,
-            _ => info.axes.iter().product(),
-        };
-
-        let pcount = find_card(header_bytes, "PCOUNT")
-            .and_then(|c| FitsHeader::new(c).ok()?.value)
-            .unwrap_or(0.0) as usize;
-
-        let gcount = find_card(header_bytes, "GCOUNT")
-            .and_then(|c| FitsHeader::new(c).ok()?.value)
-            .unwrap_or(1.0) as usize;
-
-        let bytes_per_element = (bitpix.abs() as usize) / 8;
-        let data_size_raw = bytes_per_element * gcount * (pcount + num_pixels);
-
-        let data_size_padded =
-            ((data_size_raw + FITS_BLOCKSIZE - 1) / FITS_BLOCKSIZE) * FITS_BLOCKSIZE;
-
-        if i == header_n {
-            let total_requested_size = header_size + data_size_raw;
-            if current_ptr + total_requested_size > data.len() {
-                bail!(
-                    "Data pointer out of bounds for remaining data (could not find specified hdu)"
-                );
-            }
-
-            return Ok(&data[current_ptr..current_ptr + total_requested_size]);
-        }
-
-        current_ptr += header_size + data_size_padded;
-    }
-
-    bail!("Could not find specified header");
+#[deprecated(note = "use mparser::crawl instead")]
+pub fn get_hdu<'a>(_data: &'a [u8], _header_n: usize) -> Result<&'a [u8]> {
+    unimplemented!("Deprecated in favor of mparser::crawl");
 }
 
 pub fn find_end_block(data_slice: &[u8]) -> Result<usize, FitsError> {

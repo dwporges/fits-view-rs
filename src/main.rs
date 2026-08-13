@@ -6,14 +6,16 @@ pub mod errors;
 pub mod gui;
 pub mod wcs;
 
+use std::fs::File;
+
 #[allow(deprecated)]
 use crate::gui::glow_gui;
 use crate::gui::wgpu_gui;
+use crate::header::mparser::crawl;
 use crate::header::*;
 use crate::image::*;
 use crate::errors::*;
 use clap::Parser;
-use header::parser::*;
 
 use crate::image::image::get_image;
 
@@ -48,15 +50,22 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let fname = args.fname;
     let hdu_n = args.hdu;
 
-    let all_data = read_file(&fname)?;
+    let mut file = File::open(fname)?;
 
-    let data = get_hdu(&all_data, hdu_n)?;
+    let hdus = crawl(&mut file)?;
 
-    let basic_info = BasicFitsInfo::from_block(&data)?;
+    let hdu = &hdus[hdu_n];
+
+    let basic_info = &hdu.basic_info;
+
+    let data = &hdu.data;
+    let image_data_ref: &[u8] = data.as_ref().map(|m| m.as_ref()).unwrap_or(&[]);
+    let image_data = get_image(image_data_ref, basic_info.bitpix as i32)?;
+
 
     info!(
         "Basic Information: BITPIX {:?}, NAXIS {}, AXES {:?}, N_PIXELS {}, N_BYTES {}, BSCALE {:?}, BZERO {:?}",
-        basic_info.bitpix.value,
+        basic_info.bitpix,
         basic_info.naxis,
         basic_info.axes,
         basic_info.n_pixels,
@@ -64,8 +73,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         basic_info.bscale,
         basic_info.bzero,
     );
-
-    let image_data = extract_image_data(&data, &basic_info)?;
 
     let width: usize = basic_info.axes.get(0).copied().unwrap_or(1);
     let height:usize = basic_info.axes.get(1).copied().unwrap_or(1);
@@ -136,17 +143,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 
-fn extract_image_data(data: &[u8], info: &BasicFitsInfo) -> Result<FitsData, FitsError> {
-    let final_header_block = find_end_block(&data)?;
-    println!("Final header block at index: {}", final_header_block);
-
-    let image_start = (final_header_block + 1) * FITS_BLOCKSIZE;
-    let image_end = image_start + info.n_bytes;
-    let image_bytes = &data[image_start..image_end];
-
-    let fits_data = get_image(image_bytes, info.bitpix.value.ok_or(FitsError::MissingBitpix)? as i32)?;
-
-    Ok(fits_data)
+#[deprecated(note = "mparser::crawl handles memmapping and parsing now")]
+fn extract_image_data(_data: &[u8], _info: &BasicHDUInfo) -> Result<FitsData, FitsError> {
+    unimplemented!("Deprecated in favor of mparser::crawl");
 }
 
 

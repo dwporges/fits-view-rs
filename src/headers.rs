@@ -9,3 +9,5 @@ pub const HEADER_LENGTH: &str = "NAXIS1";
 pub const HEADER_NAXIS: &str = "NAXIS";
 pub const HEADER_BSCALE: &str = "BSCALE";
 pub const HEADER_BZERO: &str = "BZERO";
+pub const HEADER_PCOUNT: &str = "PCOUNT";
+pub const HEADER_GCOUNT: &str = "GCOUNT";
