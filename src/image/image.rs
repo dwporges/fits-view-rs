@@ -3,39 +3,44 @@ use super::*;
 use crate::errors::FitsError;
 use byteorder::{BigEndian, ByteOrder};
 
-pub fn get_image(bytes: &[u8], bitpix: i32) -> Result<FitsData, FitsError> {
+
+pub fn get_physical_values(bytes: &[u8], bitpix: i32, bscale: f64, bzero: f64) -> Result<Vec<f64>, FitsError> {
     match bitpix {
-        8 => Ok(FitsData::Int8(bytes.to_vec())),
+        8 => Ok(bytes.iter().map(|&x| (x as f64 * bscale) + bzero).collect()),
         16 => {
             let elements = bytes.len() / 2;
-            let mut out = vec![0i16; elements];
-            // Slice the bytes to exactly elements * 2 to prevent byteorder panics
-            BigEndian::read_i16_into(&bytes[..elements * 2], &mut out);
-            Ok(FitsData::Int16(out))
+            Ok(bytes[..elements * 2]
+                .chunks_exact(2)
+                .map(|c| (i16::from_be_bytes(c.try_into().unwrap()) as f64 * bscale) + bzero)
+                .collect())
         }
         32 => {
             let elements = bytes.len() / 4;
-            let mut out = vec![0i32; elements];
-            BigEndian::read_i32_into(&bytes[..elements * 4], &mut out);
-            Ok(FitsData::Int32(out))
+            Ok(bytes[..elements * 4]
+                .chunks_exact(4)
+                .map(|c| (i32::from_be_bytes(c.try_into().unwrap()) as f64 * bscale) + bzero)
+                .collect())
         }
         64 => {
             let elements = bytes.len() / 8;
-            let mut out = vec![0i64; elements];
-            BigEndian::read_i64_into(&bytes[..elements * 8], &mut out);
-            Ok(FitsData::Int64(out))
+            Ok(bytes[..elements * 8]
+                .chunks_exact(8)
+                .map(|c| (i64::from_be_bytes(c.try_into().unwrap()) as f64 * bscale) + bzero)
+                .collect())
         }
         -32 => {
             let elements = bytes.len() / 4;
-            let mut out = vec![0.0f32; elements];
-            BigEndian::read_f32_into(&bytes[..elements * 4], &mut out);
-            Ok(FitsData::Float32(out))
+            Ok(bytes[..elements * 4]
+                .chunks_exact(4)
+                .map(|c| (f32::from_be_bytes(c.try_into().unwrap()) as f64 * bscale) + bzero)
+                .collect())
         }
         -64 => {
             let elements = bytes.len() / 8;
-            let mut out = vec![0.0f64; elements];
-            BigEndian::read_f64_into(&bytes[..elements * 8], &mut out);
-            Ok(FitsData::Float64(out))
+            Ok(bytes[..elements * 8]
+                .chunks_exact(8)
+                .map(|c| (f64::from_be_bytes(c.try_into().unwrap()) * bscale) + bzero)
+                .collect())
         }
         _ => Err(FitsError::InvalidBitpix(bitpix)),
     }

@@ -1,5 +1,4 @@
-#[deprecated(note = "use mparser instead")]
-pub mod parser;
+
 
 pub mod mparser;
 
