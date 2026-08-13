@@ -3,12 +3,13 @@ use crate::image::scalars::Scaling;
 use anyhow::{Context, Result, bail};
 use eframe::egui;
 use egui_plot::{Plot, PlotImage, PlotPoint};
+use std::sync::Arc;
 
 #[derive(Default)]
 pub struct FitsViewerApp {
     width: usize,
     height: usize,
-    physical_values: Vec<f64>,
+    physical_values: Arc<[f64]>,
     _pixels_buffer: Vec<egui::Color32>,
     min: f64,
     max: f64,
@@ -29,7 +30,7 @@ impl FitsViewerApp {
         _cc: &eframe::CreationContext<'_>,
         width: usize,
         height: usize,
-        physical_values: Vec<f64>,
+        physical_values: Arc<[f64]>,
         slice_index: usize,
         max_slices: usize,
     ) -> Self {

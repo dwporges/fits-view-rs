@@ -5,11 +5,12 @@ use crate::image::scalars::Scaling;
 use crate::image::wgpu_shader_source::WGPU_SHADER_SOURCE;
 use crate::render::FitsRenderCallback;
 use eframe::{egui, wgpu};
+use std::sync::Arc;
 
 pub struct FitsViewerApp {
     width: usize,
     height: usize,
-    physical_values: Vec<f64>,
+    image_data: Arc<[f64]>,
 
     min: f64,
     max: f64,
@@ -38,18 +39,18 @@ impl FitsViewerApp {
         cc: &eframe::CreationContext<'_>,
         width: usize,
         height: usize,
-        physical_values: Vec<f64>,
+        image_data: Arc<[f64]>,
         slice_index: usize,
         max_slices: usize,
     ) -> Self {
         egui_extras::install_image_loaders(&cc.egui_ctx);
 
-        let min_val = physical_values
+        let min_val = image_data
             .iter()
             .copied()
             .filter(|v| v.is_finite())
             .fold(f64::INFINITY, f64::min);
-        let max_val = physical_values
+        let max_val = image_data
             .iter()
             .copied()
             .filter(|v| v.is_finite())
@@ -70,7 +71,7 @@ impl FitsViewerApp {
         let target_format = &wgpu_state.target_format;
 
         // Convert f64 down to f32 for the GPU
-        let f32_pixels: Vec<f32> = physical_values
+        let f32_pixels: Vec<f32> = image_data
             .iter()
             .map(|&v| if v.is_finite() { v as f32 } else { 0.0 })
             .collect();
@@ -273,7 +274,7 @@ impl FitsViewerApp {
         Self {
             width,
             height,
-            physical_values,
+            image_data,
             min: min_val,
             max: max_val,
             black_point: initial_bp,
@@ -402,8 +403,8 @@ impl FitsViewerApp {
     fn current_slice_min_max(&self) -> (f64, f64) {
         let plane_size = self.width * self.height;
         let offset = self.slice_index * plane_size;
-        if offset + plane_size <= self.physical_values.len() {
-            let slice = &self.physical_values[offset..offset + plane_size];
+        if offset + plane_size <= self.image_data.len() {
+            let slice = &self.image_data[offset..offset + plane_size];
             let min = slice
                 .iter()
                 .copied()
@@ -502,7 +503,7 @@ impl FitsViewerApp {
         let slice_offset = self.slice_index * plane_size;
         let idx = slice_offset + py * self.width + px;
 
-        let val = self.physical_values.get(idx).copied().unwrap_or(f64::NAN);
+        let val = self.image_data.get(idx).copied().unwrap_or(f64::NAN);
 
         Some((fits_x, fits_y, val))
     }
@@ -1117,7 +1118,7 @@ mod tests {
         FitsViewerApp {
             width,
             height,
-            physical_values,
+            image_data: Arc::from(physical_values),
             min: 0.0,
             max: (total - 1) as f64,
             black_point: 0.0,

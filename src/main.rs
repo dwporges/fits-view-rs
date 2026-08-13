@@ -7,6 +7,7 @@ pub mod gui;
 pub mod wcs;
 
 use std::fs::File;
+use std::sync::Arc;
 
 #[allow(deprecated)]
 use crate::gui::glow_gui;
@@ -17,7 +18,7 @@ use crate::image::*;
 use crate::errors::*;
 use clap::Parser;
 
-use crate::image::image::get_image;
+use crate::image::image::get_physical_values;
 
 use crate::constants::{FITS_BLOCKSIZE};
 
@@ -58,10 +59,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let basic_info = &hdu.basic_info;
 
-    let data = &hdu.data;
-    let image_data_ref: &[u8] = data.as_ref().map(|m| m.as_ref()).unwrap_or(&[]);
-    let image_data = get_image(image_data_ref, basic_info.bitpix as i32)?;
-
+    let image_data_ref: &[u8] = &hdu.data.as_ref().map(|m| m.as_ref()).unwrap_or(&[]);
 
     info!(
         "Basic Information: BITPIX {:?}, NAXIS {}, AXES {:?}, N_PIXELS {}, N_BYTES {}, BSCALE {:?}, BZERO {:?}",
@@ -89,7 +87,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         return Err(format!("slice index {} out of range, only {} plane(s) available", args.slice, plane_count).into());
     }
 
-    let physical_values = to_physical_values(image_data.to_f64(), bscale, bzero);
+    let physical_values = get_physical_values(image_data_ref, basic_info.bitpix as i32, bscale, bzero)?;
+    let image_data: Arc<[f64]> = Arc::from(physical_values);
 
     let native_options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
@@ -109,7 +108,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 println!("Connected to GPU: {:?}", wgpu_render_state.adapter.get_info().name);
 
                 Ok(Box::new(
-                    wgpu_gui::FitsViewerApp::new(cc, width, height, physical_values, args.slice, plane_count)
+                    wgpu_gui::FitsViewerApp::new(cc, width, height, image_data.clone(), args.slice, plane_count)
                 ))
             }))
             .unwrap();
@@ -128,32 +127,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     eframe::run_native(
                     glow_gui::FitsViewerApp::name(), 
                     native_options, 
-                    Box::new(|cc| Ok(Box::new(glow_gui::FitsViewerApp::new(cc, width, height, physical_values, args.slice, plane_count)))))
+                    Box::new(|cc| Ok(Box::new(glow_gui::FitsViewerApp::new(cc, width, height, image_data.clone(), args.slice, plane_count)))))
                     .unwrap();
                 } 
                 _ => return Ok(())
             }
         }
     }
-
-
-
     // img.save(args.image_filename).unwrap();
     Ok(())
-}
-
-
-#[deprecated(note = "mparser::crawl handles memmapping and parsing now")]
-fn extract_image_data(_data: &[u8], _info: &BasicHDUInfo) -> Result<FitsData, FitsError> {
-    unimplemented!("Deprecated in favor of mparser::crawl");
-}
-
-
-fn to_physical_values(data: Vec<f64>, bscale: f64, bzero: f64) -> Vec<f64> {
-    data
-    .iter()
-    .map(|&v| {
-        (v as f64 * bscale) + bzero
-    }).collect()
 }
 
