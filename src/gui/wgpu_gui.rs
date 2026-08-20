@@ -1,3 +1,5 @@
+use crate::header::BasicHDUInfo;
+use crate::image::image::FitsData;
 use crate::image::render::{
     FitsGpuResources, ShaderUniforms, build_shader_source, sample_colormap,
 };
@@ -10,10 +12,12 @@ use std::sync::Arc;
 pub struct FitsViewerApp {
     width: usize,
     height: usize,
-    image_data: Arc<[f64]>,
+    image_data: Arc<FitsData>,
 
     min: f64,
     max: f64,
+    bscale: f64,
+    bzero: f64,
     black_point: f64,
     white_point: f64,
     scaling_method: Scaling,
@@ -39,23 +43,19 @@ impl FitsViewerApp {
         cc: &eframe::CreationContext<'_>,
         width: usize,
         height: usize,
-        image_data: Arc<[f64]>,
+        image_data: Arc<FitsData>,
         slice_index: usize,
         max_slices: usize,
+        basic_info: BasicHDUInfo,
     ) -> Self {
         egui_extras::install_image_loaders(&cc.egui_ctx);
 
-        let min_val = image_data
-            .iter()
-            .copied()
-            .filter(|v| v.is_finite())
-            .fold(f64::INFINITY, f64::min);
-        let max_val = image_data
-            .iter()
-            .copied()
-            .filter(|v| v.is_finite())
-            .fold(f64::NEG_INFINITY, f64::max);
-        let (initial_bp, initial_wp) = (min_val, max_val);
+        let bscale = basic_info.bscale;
+        let bzero = basic_info.bzero;
+
+        let (cube_min, cube_max) = image_data.get_min_max(bscale, bzero);
+        let plane_size = width * height;
+        let initial_offset = slice_index * plane_size;
 
         // ======================
         // WGPU SETUP
@@ -70,11 +70,8 @@ impl FitsViewerApp {
         let queue = &wgpu_state.queue;
         let target_format = &wgpu_state.target_format;
 
-        // Convert f64 down to f32 for the GPU
-        let f32_pixels: Vec<f32> = image_data
-            .iter()
-            .map(|&v| if v.is_finite() { v as f32 } else { 0.0 })
-            .collect();
+        // Extract the initial slice as f32 for the GPU
+        let initial_slice = image_data.get_f32_slice(initial_offset, plane_size, bscale, bzero);
 
         // Define the texture size
         let size = eframe::wgpu::Extent3d {
@@ -97,14 +94,6 @@ impl FitsViewerApp {
         });
 
         // Write the initial slice into the GPU texture
-        let plane_size = width * height;
-        let initial_offset = slice_index * plane_size;
-        let initial_slice = if initial_offset + plane_size <= f32_pixels.len() {
-            &f32_pixels[initial_offset..initial_offset + plane_size]
-        } else {
-            &f32_pixels[..plane_size.min(f32_pixels.len())]
-        };
-
         queue.write_texture(
             eframe::wgpu::TexelCopyTextureInfo {
                 texture: &texture,
@@ -112,7 +101,7 @@ impl FitsViewerApp {
                 origin: eframe::wgpu::Origin3d::ZERO,
                 aspect: eframe::wgpu::TextureAspect::All,
             },
-            bytemuck::cast_slice(initial_slice),
+            bytemuck::cast_slice(&initial_slice),
             eframe::wgpu::TexelCopyBufferLayout {
                 offset: 0,
                 bytes_per_row: Some(4 * width as u32), // 4 bytes per f32
@@ -138,8 +127,8 @@ impl FitsViewerApp {
         // ==========================================
 
         let uniforms = ShaderUniforms {
-            bp: initial_bp as f32,
-            wp: initial_wp as f32,
+            bp: cube_min as f32,
+            wp: cube_max as f32,
             pan: [0.0, 0.0],
             zoom: 1.0,
             rotation: 0.0,
@@ -266,7 +255,9 @@ impl FitsViewerApp {
                 bind_group_layout,
                 texture,
                 current_slice: slice_index,
-                all_f32_pixels: f32_pixels,
+                image_data: image_data.clone(),
+                bscale,
+                bzero,
                 width: width as u32,
                 height: height as u32,
             });
@@ -275,10 +266,12 @@ impl FitsViewerApp {
             width,
             height,
             image_data,
-            min: min_val,
-            max: max_val,
-            black_point: initial_bp,
-            white_point: initial_wp,
+            min: cube_min,
+            max: cube_max,
+            bscale,
+            bzero,
+            black_point: cube_min,
+            white_point: cube_max,
             scaling_method: Scaling::ASINH,
             slice_index,
             max_slices,
@@ -404,22 +397,7 @@ impl FitsViewerApp {
         let plane_size = self.width * self.height;
         let offset = self.slice_index * plane_size;
         if offset + plane_size <= self.image_data.len() {
-            let slice = &self.image_data[offset..offset + plane_size];
-            let min = slice
-                .iter()
-                .copied()
-                .filter(|v| v.is_finite())
-                .fold(f64::INFINITY, f64::min);
-            let max = slice
-                .iter()
-                .copied()
-                .filter(|v| v.is_finite())
-                .fold(f64::NEG_INFINITY, f64::max);
-            if min.is_finite() && max.is_finite() {
-                (min, max)
-            } else {
-                (self.min, self.max)
-            }
+            self.image_data.get_slice_min_max(offset, plane_size, self.bscale, self.bzero)
         } else {
             (self.min, self.max)
         }
@@ -503,7 +481,11 @@ impl FitsViewerApp {
         let slice_offset = self.slice_index * plane_size;
         let idx = slice_offset + py * self.width + px;
 
-        let val = self.image_data.get(idx).copied().unwrap_or(f64::NAN);
+        let val = if idx < self.image_data.len() {
+            self.image_data.get_f64_pixel(idx, self.bscale, self.bzero)
+        } else {
+            f64::NAN
+        };
 
         Some((fits_x, fits_y, val))
     }
@@ -1118,9 +1100,11 @@ mod tests {
         FitsViewerApp {
             width,
             height,
-            image_data: Arc::from(physical_values),
+            image_data: Arc::new(FitsData::F64(physical_values)),
             min: 0.0,
             max: (total - 1) as f64,
+            bscale: 1.0,
+            bzero: 0.0,
             black_point: 0.0,
             white_point: (total - 1) as f64,
             scaling_method: Scaling::LINEAR,

@@ -1,9 +1,9 @@
-use anyhow::{Context, Result, bail};
+use anyhow::{Context, Result};
 use crate::constants::{END_CARD, FITS_BLOCKSIZE, FITS_CARDSIZE};
 use crate::header::{BasicHDUInfo, Card, FitsHeader, HDU};
 use std::fs::File;
 use std::io::{Read, Seek, SeekFrom};
-use log::{debug, info};
+use log::{debug};
 use indexmap::IndexMap;
 
 
@@ -83,14 +83,4 @@ pub fn crawl(file: &mut File) -> Result<IndexMap<usize, HDU>> {
 fn calculate_data_n_blocks(basic_info: &BasicHDUInfo) -> usize {
     let n_bytes = basic_info.n_bytes;
     n_bytes.div_ceil(FITS_BLOCKSIZE)
-}
-
-fn parse_card(card: &[u8]) -> ([u8; 8], [u8; 71]) {
-    let mut key = [0u8; 8];
-    key.copy_from_slice(&card[0..8]);
-    
-    let mut value = [0u8; 71];
-    value.copy_from_slice(&card[9..80]);
-    
-    (key, value)
 }

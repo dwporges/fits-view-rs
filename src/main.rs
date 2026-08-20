@@ -11,16 +11,10 @@ use std::sync::Arc;
 
 #[allow(deprecated)]
 use crate::gui::glow_gui;
-use crate::gui::wgpu_gui;
+use crate::{gui::wgpu_gui, image::image::FitsData};
 use crate::header::mparser::crawl;
-use crate::header::*;
 use crate::image::*;
-use crate::errors::*;
 use clap::Parser;
-
-use crate::image::image::get_physical_values;
-
-use crate::constants::{FITS_BLOCKSIZE};
 
 use env_logger;
 use log::{info};
@@ -87,8 +81,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         return Err(format!("slice index {} out of range, only {} plane(s) available", args.slice, plane_count).into());
     }
 
-    let physical_values = get_physical_values(image_data_ref, basic_info.bitpix as i32, bscale, bzero)?;
-    let image_data: Arc<[f64]> = Arc::from(physical_values);
+    let physical_values = FitsData::new(image_data_ref, basic_info.bitpix as i32)?;
+    let image_data: Arc<FitsData> = Arc::from(physical_values);
+
+    // Wgpu_gui uses basic_info. We can create a clone to pass ownership.
+    let basic_info_clone = crate::header::BasicHDUInfo {
+        bitpix: basic_info.bitpix,
+        naxis: basic_info.naxis,
+        axes: basic_info.axes.clone(),
+        n_pixels: basic_info.n_pixels,
+        n_bytes: basic_info.n_bytes,
+        bscale: basic_info.bscale,
+        bzero: basic_info.bzero,
+    };
 
     let native_options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
@@ -101,14 +106,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         false => {
             eframe::run_native(wgpu_gui::FitsViewerApp::name(), 
             native_options, 
-            Box::new(|cc| { 
+            Box::new(move |cc| { 
                 let wgpu_render_state = cc.wgpu_render_state.as_ref()
                     .expect("Failed to initialise Wgpu renderer. Ensure your GPU supports Vulkan/Metal/DX12.");
 
                 println!("Connected to GPU: {:?}", wgpu_render_state.adapter.get_info().name);
 
                 Ok(Box::new(
-                    wgpu_gui::FitsViewerApp::new(cc, width, height, image_data.clone(), args.slice, plane_count)
+                    wgpu_gui::FitsViewerApp::new(cc, width, height, image_data.clone(), args.slice, plane_count, basic_info_clone)
                 ))
             }))
             .unwrap();
@@ -124,10 +129,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
             match user_choice.to_uppercase().as_ref() {
                 "Y" => {
+                    // Note: Glow backend needs f64 for now, so we extract the slice. This is inefficient but avoids rewriting Glow
+                    let slice_f64 = (0..width*height).map(|i| image_data.get_f64_pixel(i + args.slice * width * height, bscale, bzero)).collect::<Vec<f64>>();
+                    let image_data_f64: Arc<[f64]> = Arc::from(slice_f64);
                     eframe::run_native(
                     glow_gui::FitsViewerApp::name(), 
                     native_options, 
-                    Box::new(|cc| Ok(Box::new(glow_gui::FitsViewerApp::new(cc, width, height, image_data.clone(), args.slice, plane_count)))))
+                    Box::new(move |cc| Ok(Box::new(glow_gui::FitsViewerApp::new(cc, width, height, image_data_f64.clone(), args.slice, plane_count)))))
                     .unwrap();
                 } 
                 _ => return Ok(())
