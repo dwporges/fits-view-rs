@@ -1,11 +1,7 @@
-
-
 pub mod mparser;
 
-use crate::errors::FitsError;
 use crate::headers::*;
 use anyhow::{Context, Result};
-use indexmap::IndexMap;
 use std::str::{self, FromStr};
 
 pub struct BasicHDUInfo {

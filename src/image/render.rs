@@ -33,8 +33,8 @@ impl egui_wgpu::CallbackTrait for FitsRenderCallback {
         if gpu_res.current_slice != self.slice_index {
             let plane_size = (gpu_res.width * gpu_res.height) as usize;
             let offset = self.slice_index * plane_size;
-            if offset + plane_size <= gpu_res.all_f32_pixels.len() {
-                let slice_data = &gpu_res.all_f32_pixels[offset..offset + plane_size];
+            if offset + plane_size <= gpu_res.image_data.len() {
+                let slice_data = gpu_res.image_data.get_f32_slice(offset, plane_size, gpu_res.bscale, gpu_res.bzero);
                 let size = eframe::wgpu::Extent3d {
                     width: gpu_res.width,
                     height: gpu_res.height,
@@ -47,7 +47,7 @@ impl egui_wgpu::CallbackTrait for FitsRenderCallback {
                         origin: eframe::wgpu::Origin3d::ZERO,
                         aspect: eframe::wgpu::TextureAspect::All,
                     },
-                    bytemuck::cast_slice(slice_data),
+                    bytemuck::cast_slice(&slice_data),
                     eframe::wgpu::TexelCopyBufferLayout {
                         offset: 0,
                         bytes_per_row: Some(4 * gpu_res.width),
@@ -123,7 +123,9 @@ pub struct FitsGpuResources {
     pub bind_group_layout: eframe::wgpu::BindGroupLayout,
     pub texture: eframe::wgpu::Texture,
     pub current_slice: usize,
-    pub all_f32_pixels: Vec<f32>,
+    pub image_data: std::sync::Arc<crate::image::image::FitsData>,
+    pub bscale: f64,
+    pub bzero: f64,
     pub width: u32,
     pub height: u32,
 }
