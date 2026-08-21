@@ -33,29 +33,31 @@ impl egui_wgpu::CallbackTrait for FitsRenderCallback {
         if gpu_res.current_slice != self.slice_index {
             let plane_size = (gpu_res.width * gpu_res.height) as usize;
             let offset = self.slice_index * plane_size;
-            if offset + plane_size <= gpu_res.image_data.len() {
-                let slice_data = gpu_res.image_data.get_f32_slice(offset, plane_size, gpu_res.bscale, gpu_res.bzero);
-                let size = eframe::wgpu::Extent3d {
-                    width: gpu_res.width,
-                    height: gpu_res.height,
-                    depth_or_array_layers: 1,
-                };
-                queue.write_texture(
-                    eframe::wgpu::TexelCopyTextureInfo {
-                        texture: &gpu_res.texture,
-                        mip_level: 0,
-                        origin: eframe::wgpu::Origin3d::ZERO,
-                        aspect: eframe::wgpu::TextureAspect::All,
-                    },
-                    bytemuck::cast_slice(&slice_data),
-                    eframe::wgpu::TexelCopyBufferLayout {
-                        offset: 0,
-                        bytes_per_row: Some(4 * gpu_res.width),
-                        rows_per_image: Some(gpu_res.height),
-                    },
-                    size,
-                );
-                gpu_res.current_slice = self.slice_index;
+            if let Some(image_data) = &gpu_res.image_data {
+                if offset + plane_size <= image_data.len() {
+                    let slice_data = image_data.get_f32_slice(offset, plane_size, gpu_res.bscale, gpu_res.bzero);
+                    let size = eframe::wgpu::Extent3d {
+                        width: gpu_res.width.max(1),
+                        height: gpu_res.height.max(1),
+                        depth_or_array_layers: 1,
+                    };
+                    queue.write_texture(
+                        eframe::wgpu::TexelCopyTextureInfo {
+                            texture: &gpu_res.texture,
+                            mip_level: 0,
+                            origin: eframe::wgpu::Origin3d::ZERO,
+                            aspect: eframe::wgpu::TextureAspect::All,
+                        },
+                        bytemuck::cast_slice(&slice_data),
+                        eframe::wgpu::TexelCopyBufferLayout {
+                            offset: 0,
+                            bytes_per_row: Some(4 * gpu_res.width.max(1)),
+                            rows_per_image: Some(gpu_res.height.max(1)),
+                        },
+                        size,
+                    );
+                    gpu_res.current_slice = self.slice_index;
+                }
             }
         }
 
@@ -121,9 +123,10 @@ pub struct FitsGpuResources {
     pub bind_group: eframe::wgpu::BindGroup,
     pub uniform_buffer: eframe::wgpu::Buffer,
     pub bind_group_layout: eframe::wgpu::BindGroupLayout,
+    pub sampler: eframe::wgpu::Sampler,
     pub texture: eframe::wgpu::Texture,
     pub current_slice: usize,
-    pub image_data: std::sync::Arc<crate::image::image::FitsData>,
+    pub image_data: Option<std::sync::Arc<crate::image::image::FitsData>>,
     pub bscale: f64,
     pub bzero: f64,
     pub width: u32,

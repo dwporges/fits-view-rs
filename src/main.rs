@@ -17,7 +17,6 @@ use crate::image::*;
 use clap::Parser;
 
 use env_logger;
-use log::{info};
 
 
 #[derive(Parser, Debug)]
@@ -49,55 +48,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let hdus = crawl(&mut file)?;
 
-    let hdu = &hdus[hdu_n];
-
-    let basic_info = &hdu.basic_info;
-
-    let image_data_ref: &[u8] = &hdu.data.as_ref().map(|m| m.as_ref()).unwrap_or(&[]);
-
-    info!(
-        "Basic Information: BITPIX {:?}, NAXIS {}, AXES {:?}, N_PIXELS {}, N_BYTES {}, BSCALE {:?}, BZERO {:?}",
-        basic_info.bitpix,
-        basic_info.naxis,
-        basic_info.axes,
-        basic_info.n_pixels,
-        basic_info.n_bytes,
-        basic_info.bscale,
-        basic_info.bzero,
-    );
-
-    let width: usize = basic_info.axes.get(0).copied().unwrap_or(1);
-    let height:usize = basic_info.axes.get(1).copied().unwrap_or(1);
-    let bscale: f64 = basic_info.bscale;
-    let bzero: f64 = basic_info.bzero;
-
-    let plane_count = if basic_info.naxis <= 2 {
-        1
-    } else {
-        basic_info.axes[2..].iter().product()
-    };
-
-    if args.slice >= plane_count {
-        return Err(format!("slice index {} out of range, only {} plane(s) available", args.slice, plane_count).into());
-    }
-
-    let physical_values = FitsData::new(image_data_ref, basic_info.bitpix as i32)?;
-    let image_data: Arc<FitsData> = Arc::from(physical_values);
-
-    // Wgpu_gui uses basic_info. We can create a clone to pass ownership.
-    let basic_info_clone = crate::header::BasicHDUInfo {
-        bitpix: basic_info.bitpix,
-        naxis: basic_info.naxis,
-        axes: basic_info.axes.clone(),
-        n_pixels: basic_info.n_pixels,
-        n_bytes: basic_info.n_bytes,
-        bscale: basic_info.bscale,
-        bzero: basic_info.bzero,
-    };
-
     let native_options = eframe::NativeOptions {
-        viewport: egui::ViewportBuilder::default()
-                .with_maximized(true),
+        viewport: egui::ViewportBuilder::default().with_maximized(true),
         renderer: eframe::Renderer::Wgpu,
         ..eframe::NativeOptions::default() 
     };
@@ -113,7 +65,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 println!("Connected to GPU: {:?}", wgpu_render_state.adapter.get_info().name);
 
                 Ok(Box::new(
-                    wgpu_gui::FitsViewerApp::new(cc, width, height, image_data.clone(), args.slice, plane_count, basic_info_clone)
+                    wgpu_gui::FitsViewerApp::new(cc, hdus, hdu_n, args.slice)
                 ))
             }))
             .unwrap();
@@ -129,7 +81,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
             match user_choice.to_uppercase().as_ref() {
                 "Y" => {
-                    // Note: Glow backend needs f64 for now, so we extract the slice. This is inefficient but avoids rewriting Glow
+                    let hdu = &hdus[hdu_n];
+                    let basic_info = &hdu.basic_info;
+                    let image_data_ref = hdu.data.as_ref().map(|m| m.as_ref()).unwrap_or(&[]);
+                    let physical_values = FitsData::new(image_data_ref, basic_info.bitpix as i32).unwrap();
+                    let image_data: Arc<FitsData> = Arc::from(physical_values);
+                    let width = basic_info.axes.get(0).copied().unwrap_or(1);
+                    let height = basic_info.axes.get(1).copied().unwrap_or(1);
+                    let bscale = basic_info.bscale;
+                    let bzero = basic_info.bzero;
+                    let plane_count = if basic_info.naxis <= 2 { 1 } else { basic_info.axes[2..].iter().product() };
                     let slice_f64 = (0..width*height).map(|i| image_data.get_f64_pixel(i + args.slice * width * height, bscale, bzero)).collect::<Vec<f64>>();
                     let image_data_f64: Arc<[f64]> = Arc::from(slice_f64);
                     eframe::run_native(

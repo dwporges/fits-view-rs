@@ -1,4 +1,5 @@
-use crate::header::BasicHDUInfo;
+use crate::header::HDU;
+use indexmap::IndexMap;
 use crate::image::image::FitsData;
 use crate::image::render::{
     FitsGpuResources, ShaderUniforms, build_shader_source, sample_colormap,
@@ -10,9 +11,13 @@ use eframe::{egui, wgpu};
 use std::sync::Arc;
 
 pub struct FitsViewerApp {
+    hdus: IndexMap<usize, HDU>,
+    current_hdu_index: usize,
+    pending_hdu_change: bool,
+
     width: usize,
     height: usize,
-    image_data: Arc<FitsData>,
+    image_data: Option<Arc<FitsData>>,
 
     min: f64,
     max: f64,
@@ -41,106 +46,52 @@ pub struct FitsViewerApp {
 impl FitsViewerApp {
     pub fn new(
         cc: &eframe::CreationContext<'_>,
-        width: usize,
-        height: usize,
-        image_data: Arc<FitsData>,
+        hdus: IndexMap<usize, HDU>,
+        hdu_index: usize,
         slice_index: usize,
-        max_slices: usize,
-        basic_info: BasicHDUInfo,
     ) -> Self {
         egui_extras::install_image_loaders(&cc.egui_ctx);
 
-        let bscale = basic_info.bscale;
-        let bzero = basic_info.bzero;
+        let mut app = Self {
+            hdus,
+            current_hdu_index: hdu_index,
+            pending_hdu_change: true,
+            width: 1,
+            height: 1,
+            image_data: None,
+            min: 0.0,
+            max: 1.0,
+            bscale: 1.0,
+            bzero: 0.0,
+            black_point: 0.0,
+            white_point: 1.0,
+            scaling_method: Scaling::ASINH,
+            slice_index,
+            max_slices: 1,
+            pan: egui::Vec2::ZERO,
+            zoom: 1.0,
+            rotation: 0.0,
+            bias: 0.5,
+            contrast: 1.0,
+            lock_bias: false,
+            lock_contrast: false,
+            invert: false,
+            recolor_mode: 0,
+            posterize_levels: 8.0,
+            last_canvas_rect: None,
+        };
 
-        let (cube_min, cube_max) = image_data.get_min_max(bscale, bzero);
-        let plane_size = width * height;
-        let initial_offset = slice_index * plane_size;
-
-        // ======================
-        // WGPU SETUP
-        // ======================
-
-        // Get the render state and wgpu context
         let wgpu_state = cc
             .wgpu_render_state
             .as_ref()
             .expect("WGPU must be enabled!");
         let device = &wgpu_state.device;
-        let queue = &wgpu_state.queue;
         let target_format = &wgpu_state.target_format;
 
-        // Extract the initial slice as f32 for the GPU
-        let initial_slice = image_data.get_f32_slice(initial_offset, plane_size, bscale, bzero);
-
-        // Define the texture size
-        let size = eframe::wgpu::Extent3d {
-            width: width as u32,
-            height: height as u32,
-            depth_or_array_layers: 1,
-        };
-
-        // Create the empty 32-bit Float Texture on the GPU
-        let texture = device.create_texture(&eframe::wgpu::TextureDescriptor {
-            label: Some("FITS Raw Data Texture"),
-            size,
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: eframe::wgpu::TextureDimension::D2,
-            format: eframe::wgpu::TextureFormat::R32Float, // <-- 32-bit floats!
-            usage: eframe::wgpu::TextureUsages::TEXTURE_BINDING
-                | eframe::wgpu::TextureUsages::COPY_DST,
-            view_formats: &[],
-        });
-
-        // Write the initial slice into the GPU texture
-        queue.write_texture(
-            eframe::wgpu::TexelCopyTextureInfo {
-                texture: &texture,
-                mip_level: 0,
-                origin: eframe::wgpu::Origin3d::ZERO,
-                aspect: eframe::wgpu::TextureAspect::All,
-            },
-            bytemuck::cast_slice(&initial_slice),
-            eframe::wgpu::TexelCopyBufferLayout {
-                offset: 0,
-                bytes_per_row: Some(4 * width as u32), // 4 bytes per f32
-                rows_per_image: Some(height as u32),
-            },
-            size,
-        );
-
-        // Create Texture View and Sampler
-        let texture_view = texture.create_view(&eframe::wgpu::TextureViewDescriptor::default());
-        let sampler = device.create_sampler(&eframe::wgpu::SamplerDescriptor {
-            address_mode_u: eframe::wgpu::AddressMode::ClampToEdge,
-            address_mode_v: eframe::wgpu::AddressMode::ClampToEdge,
-            address_mode_w: eframe::wgpu::AddressMode::ClampToEdge,
-            mag_filter: eframe::wgpu::FilterMode::Nearest, // Crisp pixel borders!
-            min_filter: eframe::wgpu::FilterMode::Nearest,
-            mipmap_filter: eframe::wgpu::MipmapFilterMode::Nearest,
-            ..Default::default()
-        });
-
-        // ==========================================
-        // UNIFORM BUFFER & PIPELINE SETUP
-        // ==========================================
-
         let uniforms = ShaderUniforms {
-            bp: cube_min as f32,
-            wp: cube_max as f32,
-            pan: [0.0, 0.0],
-            zoom: 1.0,
-            rotation: 0.0,
-            aspect_scale: [1.0, 1.0],
-            bias: 0.5,
-            contrast: 1.0,
-            posterize_levels: 8.0,
-            scaling_mode: 3,
-            recolor_mode: 0,
-            invert: 0,
-            _pad0: 0.0,
-            _pad1: 0.0,
+            bp: 0.0, wp: 1.0, pan: [0.0, 0.0], zoom: 1.0, rotation: 0.0,
+            aspect_scale: [1.0, 1.0], bias: 0.5, contrast: 1.0, posterize_levels: 8.0,
+            scaling_mode: 3, recolor_mode: 0, invert: 0, _pad0: 0.0, _pad1: 0.0,
         };
 
         use eframe::wgpu::util::DeviceExt;
@@ -157,52 +108,51 @@ impl FitsViewerApp {
                     eframe::wgpu::BindGroupLayoutEntry {
                         binding: 0,
                         visibility: eframe::wgpu::ShaderStages::FRAGMENT,
-                        ty: eframe::wgpu::BindingType::Buffer {
-                            ty: eframe::wgpu::BufferBindingType::Uniform,
-                            has_dynamic_offset: false,
-                            min_binding_size: None,
-                        },
+                        ty: eframe::wgpu::BindingType::Buffer { ty: eframe::wgpu::BufferBindingType::Uniform, has_dynamic_offset: false, min_binding_size: None },
                         count: None,
                     },
                     eframe::wgpu::BindGroupLayoutEntry {
                         binding: 1,
                         visibility: eframe::wgpu::ShaderStages::FRAGMENT,
-                        ty: eframe::wgpu::BindingType::Texture {
-                            sample_type: eframe::wgpu::TextureSampleType::Float {
-                                filterable: false,
-                            },
-                            view_dimension: eframe::wgpu::TextureViewDimension::D2,
-                            multisampled: false,
-                        },
+                        ty: eframe::wgpu::BindingType::Texture { sample_type: eframe::wgpu::TextureSampleType::Float { filterable: false }, view_dimension: eframe::wgpu::TextureViewDimension::D2, multisampled: false },
                         count: None,
                     },
                     eframe::wgpu::BindGroupLayoutEntry {
                         binding: 2,
                         visibility: eframe::wgpu::ShaderStages::FRAGMENT,
-                        ty: eframe::wgpu::BindingType::Sampler(
-                            eframe::wgpu::SamplerBindingType::NonFiltering,
-                        ),
+                        ty: eframe::wgpu::BindingType::Sampler(eframe::wgpu::SamplerBindingType::NonFiltering),
                         count: None,
                     },
                 ],
             });
 
+        let size = eframe::wgpu::Extent3d { width: 1, height: 1, depth_or_array_layers: 1 };
+        let texture = device.create_texture(&eframe::wgpu::TextureDescriptor {
+            label: Some("FITS Raw Data Texture"),
+            size,
+            mip_level_count: 1, sample_count: 1, dimension: eframe::wgpu::TextureDimension::D2,
+            format: eframe::wgpu::TextureFormat::R32Float,
+            usage: eframe::wgpu::TextureUsages::TEXTURE_BINDING | eframe::wgpu::TextureUsages::COPY_DST,
+            view_formats: &[],
+        });
+        
+        let texture_view = texture.create_view(&eframe::wgpu::TextureViewDescriptor::default());
+        let sampler = device.create_sampler(&eframe::wgpu::SamplerDescriptor {
+            address_mode_u: eframe::wgpu::AddressMode::ClampToEdge,
+            address_mode_v: eframe::wgpu::AddressMode::ClampToEdge,
+            address_mode_w: eframe::wgpu::AddressMode::ClampToEdge,
+            mag_filter: eframe::wgpu::FilterMode::Nearest,
+            min_filter: eframe::wgpu::FilterMode::Nearest,
+            ..Default::default()
+        });
+
         let bind_group = device.create_bind_group(&eframe::wgpu::BindGroupDescriptor {
             label: Some("FITS Bind Group"),
             layout: &bind_group_layout,
             entries: &[
-                eframe::wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: uniform_buffer.as_entire_binding(),
-                },
-                eframe::wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: eframe::wgpu::BindingResource::TextureView(&texture_view),
-                },
-                eframe::wgpu::BindGroupEntry {
-                    binding: 2,
-                    resource: eframe::wgpu::BindingResource::Sampler(&sampler),
-                },
+                eframe::wgpu::BindGroupEntry { binding: 0, resource: uniform_buffer.as_entire_binding() },
+                eframe::wgpu::BindGroupEntry { binding: 1, resource: eframe::wgpu::BindingResource::TextureView(&texture_view) },
+                eframe::wgpu::BindGroupEntry { binding: 2, resource: eframe::wgpu::BindingResource::Sampler(&sampler) },
             ],
         });
 
@@ -221,72 +171,95 @@ impl FitsViewerApp {
         let pipeline = device.create_render_pipeline(&eframe::wgpu::RenderPipelineDescriptor {
             label: Some("FITS Render Pipeline"),
             layout: Some(&pipeline_layout),
-            vertex: eframe::wgpu::VertexState {
-                module: &shader,
-                entry_point: Some("vs_main"),
-                buffers: &[],
-                compilation_options: Default::default(),
-            },
+            vertex: eframe::wgpu::VertexState { module: &shader, entry_point: Some("vs_main"), buffers: &[], compilation_options: Default::default() },
             fragment: Some(eframe::wgpu::FragmentState {
-                module: &shader,
-                entry_point: Some("fs_main"),
-                targets: &[Some(eframe::wgpu::ColorTargetState {
-                    format: *target_format,
-                    blend: Some(eframe::wgpu::BlendState::REPLACE),
-                    write_mask: eframe::wgpu::ColorWrites::ALL,
-                })],
+                module: &shader, entry_point: Some("fs_main"),
+                targets: &[Some(eframe::wgpu::ColorTargetState { format: *target_format, blend: Some(eframe::wgpu::BlendState::REPLACE), write_mask: eframe::wgpu::ColorWrites::ALL })],
                 compilation_options: Default::default(),
             }),
             primitive: eframe::wgpu::PrimitiveState::default(),
-            depth_stencil: None,
-            multisample: eframe::wgpu::MultisampleState::default(),
-            multiview_mask: None,
-            cache: None,
+            depth_stencil: None, multisample: eframe::wgpu::MultisampleState::default(), multiview_mask: None, cache: None,
         });
 
-        wgpu_state
-            .renderer
-            .write()
-            .callback_resources
-            .insert(FitsGpuResources {
-                pipeline,
-                bind_group,
-                uniform_buffer,
-                bind_group_layout,
-                texture,
-                current_slice: slice_index,
-                image_data: image_data.clone(),
-                bscale,
-                bzero,
-                width: width as u32,
-                height: height as u32,
-            });
+        wgpu_state.renderer.write().callback_resources.insert(FitsGpuResources {
+            pipeline, bind_group, uniform_buffer, bind_group_layout, sampler, texture, current_slice: 0, image_data: None, bscale: 1.0, bzero: 0.0, width: 1, height: 1,
+        });
 
-        Self {
-            width,
-            height,
-            image_data,
-            min: cube_min,
-            max: cube_max,
-            bscale,
-            bzero,
-            black_point: cube_min,
-            white_point: cube_max,
-            scaling_method: Scaling::ASINH,
-            slice_index,
-            max_slices,
-            pan: egui::Vec2::ZERO,
-            zoom: 1.0,
-            rotation: 0.0,
-            bias: 0.5,
-            contrast: 1.0,
-            lock_bias: false,
-            lock_contrast: false,
-            invert: false,
-            recolor_mode: 0,
-            posterize_levels: 8.0,
-            last_canvas_rect: None,
+        app
+    }
+
+    pub fn load_hdu(&mut self, wgpu_state: &egui_wgpu::RenderState) {
+        let hdu = &self.hdus[&self.current_hdu_index];
+        let basic_info = &hdu.basic_info;
+
+        let width = basic_info.axes.get(0).copied().unwrap_or(1);
+        let height = basic_info.axes.get(1).copied().unwrap_or(1);
+        let plane_count = if basic_info.naxis <= 2 { 1 } else { basic_info.axes[2..].iter().product() };
+
+        let image_data_ref = hdu.data.as_ref().map(|m| m.as_ref()).unwrap_or(&[]);
+        
+        let (image_data_opt, min, max) = if basic_info.n_pixels > 0 && !image_data_ref.is_empty() {
+            if let Ok(data) = FitsData::new(image_data_ref, basic_info.bitpix as i32) {
+                let arc_data = Arc::new(data);
+                let (min, max) = arc_data.get_min_max(basic_info.bscale, basic_info.bzero);
+                (Some(arc_data), min, max)
+            } else { (None, 0.0, 1.0) }
+        } else { (None, 0.0, 1.0) };
+
+        self.width = width; self.height = height; self.max_slices = plane_count; self.slice_index = 0;
+        self.bscale = basic_info.bscale; self.bzero = basic_info.bzero;
+        self.min = min; self.max = max; self.black_point = min; self.white_point = max;
+        self.image_data = image_data_opt.clone();
+        self.pan = egui::Vec2::ZERO; self.zoom = 1.0;
+
+        let device = &wgpu_state.device;
+        let queue = &wgpu_state.queue;
+
+        let texture_width = width.max(1) as u32;
+        let texture_height = height.max(1) as u32;
+        let size = eframe::wgpu::Extent3d { width: texture_width, height: texture_height, depth_or_array_layers: 1 };
+
+        let texture = device.create_texture(&eframe::wgpu::TextureDescriptor {
+            label: Some("FITS Raw Data Texture"), size, mip_level_count: 1, sample_count: 1, dimension: eframe::wgpu::TextureDimension::D2,
+            format: eframe::wgpu::TextureFormat::R32Float, usage: eframe::wgpu::TextureUsages::TEXTURE_BINDING | eframe::wgpu::TextureUsages::COPY_DST, view_formats: &[],
+        });
+
+        let plane_size = width * height;
+
+        if let Some(data) = &image_data_opt {
+            let initial_slice = data.get_f32_slice(0, plane_size, basic_info.bscale, basic_info.bzero);
+            queue.write_texture(
+                eframe::wgpu::TexelCopyTextureInfo { texture: &texture, mip_level: 0, origin: eframe::wgpu::Origin3d::ZERO, aspect: eframe::wgpu::TextureAspect::All },
+                bytemuck::cast_slice(&initial_slice),
+                eframe::wgpu::TexelCopyBufferLayout { offset: 0, bytes_per_row: Some(4 * texture_width), rows_per_image: Some(texture_height) },
+                size,
+            );
+        } else {
+            let zero: [f32; 1] = [0.0];
+            queue.write_texture(
+                eframe::wgpu::TexelCopyTextureInfo { texture: &texture, mip_level: 0, origin: eframe::wgpu::Origin3d::ZERO, aspect: eframe::wgpu::TextureAspect::All },
+                bytemuck::cast_slice(&zero),
+                eframe::wgpu::TexelCopyBufferLayout { offset: 0, bytes_per_row: Some(4), rows_per_image: Some(1) },
+                size,
+            );
         }
+
+        let texture_view = texture.create_view(&eframe::wgpu::TextureViewDescriptor::default());
+
+        let mut renderer = wgpu_state.renderer.write();
+        let res = renderer.callback_resources.get_mut::<FitsGpuResources>().unwrap();
+
+        let bind_group = device.create_bind_group(&eframe::wgpu::BindGroupDescriptor {
+            label: Some("FITS Bind Group"), layout: &res.bind_group_layout,
+            entries: &[
+                eframe::wgpu::BindGroupEntry { binding: 0, resource: res.uniform_buffer.as_entire_binding() },
+                eframe::wgpu::BindGroupEntry { binding: 1, resource: eframe::wgpu::BindingResource::TextureView(&texture_view) },
+                eframe::wgpu::BindGroupEntry { binding: 2, resource: eframe::wgpu::BindingResource::Sampler(&res.sampler) },
+            ],
+        });
+
+        res.texture = texture; res.bind_group = bind_group; res.image_data = image_data_opt; res.bscale = basic_info.bscale; res.bzero = basic_info.bzero; res.width = texture_width; res.height = texture_height; res.current_slice = 0;
+        self.pending_hdu_change = false;
     }
 
     pub fn recompile_shader_fragment(
@@ -394,12 +367,16 @@ impl FitsViewerApp {
     }
 
     fn current_slice_min_max(&self) -> (f64, f64) {
-        let plane_size = self.width * self.height;
-        let offset = self.slice_index * plane_size;
-        if offset + plane_size <= self.image_data.len() {
-            self.image_data.get_slice_min_max(offset, plane_size, self.bscale, self.bzero)
+        if let Some(image_data) = &self.image_data {
+            let plane_size = self.width * self.height;
+            let offset = self.slice_index * plane_size;
+            if offset + plane_size <= image_data.len() {
+                image_data.get_slice_min_max(offset, plane_size, self.bscale, self.bzero)
+            } else {
+                (self.min, self.max)
+            }
         } else {
-            (self.min, self.max)
+            (0.0, 1.0)
         }
     }
 
@@ -481,8 +458,12 @@ impl FitsViewerApp {
         let slice_offset = self.slice_index * plane_size;
         let idx = slice_offset + py * self.width + px;
 
-        let val = if idx < self.image_data.len() {
-            self.image_data.get_f64_pixel(idx, self.bscale, self.bzero)
+        let val = if let Some(image_data) = &self.image_data {
+            if idx < image_data.len() {
+                image_data.get_f64_pixel(idx, self.bscale, self.bzero)
+            } else {
+                f64::NAN
+            }
         } else {
             f64::NAN
         };
@@ -493,6 +474,12 @@ impl FitsViewerApp {
 
 impl eframe::App for FitsViewerApp {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+        if self.pending_hdu_change {
+            if let Some(wgpu_state) = _frame.wgpu_render_state() {
+                self.load_hdu(wgpu_state);
+            }
+        }
+        
         let ctx = ui.ctx().clone();
 
         // ========================
@@ -503,10 +490,50 @@ impl eframe::App for FitsViewerApp {
             ui.add_space(4.0);
 
             // ==========================================
+            // 0. HDU SELECTION
+            // ==========================================
+            egui::CollapsingHeader::new(egui::RichText::new("📁  HDU Selection").strong().size(13.0))
+                .default_open(true)
+                .show(ui, |ui| {
+                    ui.add_space(2.0);
+                    
+                    let get_hdu_label = |index: usize, hdu: &crate::header::HDU| -> String {
+                        let ext_type = hdu.header.get_value("XTENSION").unwrap_or("PRIMARY");
+                        let clean_ext = ext_type.trim_matches('\'').trim();
+                        format!("HDU {}: {} ({} axes)", index, clean_ext, hdu.basic_info.naxis)
+                    };
+
+                    ui.horizontal(|ui| {
+                        ui.label("HDU:");
+                        egui::ComboBox::new("hdu_combo_box", "")
+                            .selected_text(get_hdu_label(self.current_hdu_index, &self.hdus[&self.current_hdu_index]))
+                            .show_ui(ui, |ui| {
+                                for key in self.hdus.keys() {
+                                    let text = get_hdu_label(*key, &self.hdus[key]);
+                                    if ui.selectable_label(self.current_hdu_index == *key, text).clicked() {
+                                        if self.current_hdu_index != *key {
+                                            self.current_hdu_index = *key;
+                                            self.pending_hdu_change = true;
+                                        }
+                                    }
+                                }
+                            });
+                    });
+                    
+                    if self.image_data.is_none() {
+                        ui.add_space(4.0);
+                        ui.label(egui::RichText::new("!!No Image Data in this HDU").color(egui::Color32::YELLOW));
+                    }
+                    ui.add_space(4.0);
+                });
+            
+            ui.separator();
+
+            // ==========================================
             // 1. SCALING & CUT LEVELS
             // ==========================================
             egui::CollapsingHeader::new(
-                egui::RichText::new("📊  Scaling & Cut Levels")
+                egui::RichText::new("Scaling & Cut Levels")
                     .strong()
                     .size(13.0),
             )
@@ -1095,18 +1122,19 @@ mod tests {
     use super::*;
 
     fn create_test_app(width: usize, height: usize, slices: usize) -> FitsViewerApp {
-        let total = width * height * slices;
-        let physical_values: Vec<f64> = (0..total).map(|i| i as f64).collect();
         FitsViewerApp {
+            hdus: indexmap::IndexMap::new(),
+            current_hdu_index: 0,
+            pending_hdu_change: false,
             width,
             height,
-            image_data: Arc::new(FitsData::F64(physical_values)),
+            image_data: Some(Arc::new(FitsData::F64(vec![0.0]))),
             min: 0.0,
-            max: (total - 1) as f64,
+            max: 0.0,
             bscale: 1.0,
             bzero: 0.0,
             black_point: 0.0,
-            white_point: (total - 1) as f64,
+            white_point: 0.0,
             scaling_method: Scaling::LINEAR,
             slice_index: 0,
             max_slices: slices,
