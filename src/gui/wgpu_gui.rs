@@ -1,5 +1,4 @@
 use crate::header::HDU;
-use indexmap::IndexMap;
 use crate::image::image::FitsData;
 use crate::image::render::{
     FitsGpuResources, ShaderUniforms, build_shader_source, sample_colormap,
@@ -8,6 +7,8 @@ use crate::image::scalars::Scaling;
 use crate::image::wgpu_shader_source::WGPU_SHADER_SOURCE;
 use crate::render::FitsRenderCallback;
 use eframe::{egui, wgpu};
+use egui_extras::Column;
+use indexmap::IndexMap;
 use std::sync::Arc;
 
 pub struct FitsViewerApp {
@@ -41,6 +42,7 @@ pub struct FitsViewerApp {
     recolor_mode: u32,
     posterize_levels: f32,
     last_canvas_rect: Option<egui::Rect>,
+    window_header_open: bool,
 }
 
 impl FitsViewerApp {
@@ -79,6 +81,7 @@ impl FitsViewerApp {
             recolor_mode: 0,
             posterize_levels: 8.0,
             last_canvas_rect: None,
+            window_header_open: false,
         };
 
         let wgpu_state = cc
@@ -89,9 +92,20 @@ impl FitsViewerApp {
         let target_format = &wgpu_state.target_format;
 
         let uniforms = ShaderUniforms {
-            bp: 0.0, wp: 1.0, pan: [0.0, 0.0], zoom: 1.0, rotation: 0.0,
-            aspect_scale: [1.0, 1.0], bias: 0.5, contrast: 1.0, posterize_levels: 8.0,
-            scaling_mode: 3, recolor_mode: 0, invert: 0, _pad0: 0.0, _pad1: 0.0,
+            bp: 0.0,
+            wp: 1.0,
+            pan: [0.0, 0.0],
+            zoom: 1.0,
+            rotation: 0.0,
+            aspect_scale: [1.0, 1.0],
+            bias: 0.5,
+            contrast: 1.0,
+            posterize_levels: 8.0,
+            scaling_mode: 3,
+            recolor_mode: 0,
+            invert: 0,
+            _pad0: 0.0,
+            _pad1: 0.0,
         };
 
         use eframe::wgpu::util::DeviceExt;
@@ -108,34 +122,53 @@ impl FitsViewerApp {
                     eframe::wgpu::BindGroupLayoutEntry {
                         binding: 0,
                         visibility: eframe::wgpu::ShaderStages::FRAGMENT,
-                        ty: eframe::wgpu::BindingType::Buffer { ty: eframe::wgpu::BufferBindingType::Uniform, has_dynamic_offset: false, min_binding_size: None },
+                        ty: eframe::wgpu::BindingType::Buffer {
+                            ty: eframe::wgpu::BufferBindingType::Uniform,
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
                         count: None,
                     },
                     eframe::wgpu::BindGroupLayoutEntry {
                         binding: 1,
                         visibility: eframe::wgpu::ShaderStages::FRAGMENT,
-                        ty: eframe::wgpu::BindingType::Texture { sample_type: eframe::wgpu::TextureSampleType::Float { filterable: false }, view_dimension: eframe::wgpu::TextureViewDimension::D2, multisampled: false },
+                        ty: eframe::wgpu::BindingType::Texture {
+                            sample_type: eframe::wgpu::TextureSampleType::Float {
+                                filterable: false,
+                            },
+                            view_dimension: eframe::wgpu::TextureViewDimension::D2,
+                            multisampled: false,
+                        },
                         count: None,
                     },
                     eframe::wgpu::BindGroupLayoutEntry {
                         binding: 2,
                         visibility: eframe::wgpu::ShaderStages::FRAGMENT,
-                        ty: eframe::wgpu::BindingType::Sampler(eframe::wgpu::SamplerBindingType::NonFiltering),
+                        ty: eframe::wgpu::BindingType::Sampler(
+                            eframe::wgpu::SamplerBindingType::NonFiltering,
+                        ),
                         count: None,
                     },
                 ],
             });
 
-        let size = eframe::wgpu::Extent3d { width: 1, height: 1, depth_or_array_layers: 1 };
+        let size = eframe::wgpu::Extent3d {
+            width: 1,
+            height: 1,
+            depth_or_array_layers: 1,
+        };
         let texture = device.create_texture(&eframe::wgpu::TextureDescriptor {
             label: Some("FITS Raw Data Texture"),
             size,
-            mip_level_count: 1, sample_count: 1, dimension: eframe::wgpu::TextureDimension::D2,
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: eframe::wgpu::TextureDimension::D2,
             format: eframe::wgpu::TextureFormat::R32Float,
-            usage: eframe::wgpu::TextureUsages::TEXTURE_BINDING | eframe::wgpu::TextureUsages::COPY_DST,
+            usage: eframe::wgpu::TextureUsages::TEXTURE_BINDING
+                | eframe::wgpu::TextureUsages::COPY_DST,
             view_formats: &[],
         });
-        
+
         let texture_view = texture.create_view(&eframe::wgpu::TextureViewDescriptor::default());
         let sampler = device.create_sampler(&eframe::wgpu::SamplerDescriptor {
             address_mode_u: eframe::wgpu::AddressMode::ClampToEdge,
@@ -150,9 +183,18 @@ impl FitsViewerApp {
             label: Some("FITS Bind Group"),
             layout: &bind_group_layout,
             entries: &[
-                eframe::wgpu::BindGroupEntry { binding: 0, resource: uniform_buffer.as_entire_binding() },
-                eframe::wgpu::BindGroupEntry { binding: 1, resource: eframe::wgpu::BindingResource::TextureView(&texture_view) },
-                eframe::wgpu::BindGroupEntry { binding: 2, resource: eframe::wgpu::BindingResource::Sampler(&sampler) },
+                eframe::wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: uniform_buffer.as_entire_binding(),
+                },
+                eframe::wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: eframe::wgpu::BindingResource::TextureView(&texture_view),
+                },
+                eframe::wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: eframe::wgpu::BindingResource::Sampler(&sampler),
+                },
             ],
         });
 
@@ -171,19 +213,47 @@ impl FitsViewerApp {
         let pipeline = device.create_render_pipeline(&eframe::wgpu::RenderPipelineDescriptor {
             label: Some("FITS Render Pipeline"),
             layout: Some(&pipeline_layout),
-            vertex: eframe::wgpu::VertexState { module: &shader, entry_point: Some("vs_main"), buffers: &[], compilation_options: Default::default() },
+            vertex: eframe::wgpu::VertexState {
+                module: &shader,
+                entry_point: Some("vs_main"),
+                buffers: &[],
+                compilation_options: Default::default(),
+            },
             fragment: Some(eframe::wgpu::FragmentState {
-                module: &shader, entry_point: Some("fs_main"),
-                targets: &[Some(eframe::wgpu::ColorTargetState { format: *target_format, blend: Some(eframe::wgpu::BlendState::REPLACE), write_mask: eframe::wgpu::ColorWrites::ALL })],
+                module: &shader,
+                entry_point: Some("fs_main"),
+                targets: &[Some(eframe::wgpu::ColorTargetState {
+                    format: *target_format,
+                    blend: Some(eframe::wgpu::BlendState::REPLACE),
+                    write_mask: eframe::wgpu::ColorWrites::ALL,
+                })],
                 compilation_options: Default::default(),
             }),
             primitive: eframe::wgpu::PrimitiveState::default(),
-            depth_stencil: None, multisample: eframe::wgpu::MultisampleState::default(), multiview_mask: None, cache: None,
+            depth_stencil: None,
+            multisample: eframe::wgpu::MultisampleState::default(),
+            multiview_mask: None,
+            cache: None,
         });
 
-        wgpu_state.renderer.write().callback_resources.insert(FitsGpuResources {
-            pipeline, bind_group, uniform_buffer, bind_group_layout, sampler, texture, current_slice: 0, image_data: None, bscale: 1.0, bzero: 0.0, width: 1, height: 1,
-        });
+        wgpu_state
+            .renderer
+            .write()
+            .callback_resources
+            .insert(FitsGpuResources {
+                pipeline,
+                bind_group,
+                uniform_buffer,
+                bind_group_layout,
+                sampler,
+                texture,
+                current_slice: 0,
+                image_data: None,
+                bscale: 1.0,
+                bzero: 0.0,
+                width: 1,
+                height: 1,
+            });
 
         app
     }
@@ -194,52 +264,98 @@ impl FitsViewerApp {
 
         let width = basic_info.axes.get(0).copied().unwrap_or(1);
         let height = basic_info.axes.get(1).copied().unwrap_or(1);
-        let plane_count = if basic_info.naxis <= 2 { 1 } else { basic_info.axes[2..].iter().product() };
+        let plane_count = if basic_info.naxis <= 2 {
+            1
+        } else {
+            basic_info.axes[2..].iter().product()
+        };
 
         let image_data_ref = hdu.data.as_ref().map(|m| m.as_ref()).unwrap_or(&[]);
-        
+
         let (image_data_opt, min, max) = if basic_info.n_pixels > 0 && !image_data_ref.is_empty() {
             if let Ok(data) = FitsData::new(image_data_ref, basic_info.bitpix as i32) {
                 let arc_data = Arc::new(data);
                 let (min, max) = arc_data.get_min_max(basic_info.bscale, basic_info.bzero);
                 (Some(arc_data), min, max)
-            } else { (None, 0.0, 1.0) }
-        } else { (None, 0.0, 1.0) };
+            } else {
+                (None, 0.0, 1.0)
+            }
+        } else {
+            (None, 0.0, 1.0)
+        };
 
-        self.width = width; self.height = height; self.max_slices = plane_count; self.slice_index = 0;
-        self.bscale = basic_info.bscale; self.bzero = basic_info.bzero;
-        self.min = min; self.max = max; self.black_point = min; self.white_point = max;
+        self.width = width;
+        self.height = height;
+        self.max_slices = plane_count;
+        self.slice_index = 0;
+        self.bscale = basic_info.bscale;
+        self.bzero = basic_info.bzero;
+        self.min = min;
+        self.max = max;
+        self.black_point = min;
+        self.white_point = max;
         self.image_data = image_data_opt.clone();
-        self.pan = egui::Vec2::ZERO; self.zoom = 1.0;
+        self.pan = egui::Vec2::ZERO;
+        self.zoom = 1.0;
 
         let device = &wgpu_state.device;
         let queue = &wgpu_state.queue;
 
         let texture_width = width.max(1) as u32;
         let texture_height = height.max(1) as u32;
-        let size = eframe::wgpu::Extent3d { width: texture_width, height: texture_height, depth_or_array_layers: 1 };
+        let size = eframe::wgpu::Extent3d {
+            width: texture_width,
+            height: texture_height,
+            depth_or_array_layers: 1,
+        };
 
         let texture = device.create_texture(&eframe::wgpu::TextureDescriptor {
-            label: Some("FITS Raw Data Texture"), size, mip_level_count: 1, sample_count: 1, dimension: eframe::wgpu::TextureDimension::D2,
-            format: eframe::wgpu::TextureFormat::R32Float, usage: eframe::wgpu::TextureUsages::TEXTURE_BINDING | eframe::wgpu::TextureUsages::COPY_DST, view_formats: &[],
+            label: Some("FITS Raw Data Texture"),
+            size,
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: eframe::wgpu::TextureDimension::D2,
+            format: eframe::wgpu::TextureFormat::R32Float,
+            usage: eframe::wgpu::TextureUsages::TEXTURE_BINDING
+                | eframe::wgpu::TextureUsages::COPY_DST,
+            view_formats: &[],
         });
 
         let plane_size = width * height;
 
         if let Some(data) = &image_data_opt {
-            let initial_slice = data.get_f32_slice(0, plane_size, basic_info.bscale, basic_info.bzero);
+            let initial_slice =
+                data.get_f32_slice(0, plane_size, basic_info.bscale, basic_info.bzero);
             queue.write_texture(
-                eframe::wgpu::TexelCopyTextureInfo { texture: &texture, mip_level: 0, origin: eframe::wgpu::Origin3d::ZERO, aspect: eframe::wgpu::TextureAspect::All },
+                eframe::wgpu::TexelCopyTextureInfo {
+                    texture: &texture,
+                    mip_level: 0,
+                    origin: eframe::wgpu::Origin3d::ZERO,
+                    aspect: eframe::wgpu::TextureAspect::All,
+                },
                 bytemuck::cast_slice(&initial_slice),
-                eframe::wgpu::TexelCopyBufferLayout { offset: 0, bytes_per_row: Some(4 * texture_width), rows_per_image: Some(texture_height) },
+                eframe::wgpu::TexelCopyBufferLayout {
+                    offset: 0,
+                    bytes_per_row: Some(4 * texture_width),
+                    rows_per_image: Some(texture_height),
+                },
                 size,
             );
         } else {
             let zero: [f32; 1] = [0.0];
             queue.write_texture(
-                eframe::wgpu::TexelCopyTextureInfo { texture: &texture, mip_level: 0, origin: eframe::wgpu::Origin3d::ZERO, aspect: eframe::wgpu::TextureAspect::All },
+                eframe::wgpu::TexelCopyTextureInfo {
+                    texture: &texture,
+                    mip_level: 0,
+                    origin: eframe::wgpu::Origin3d::ZERO,
+                    aspect: eframe::wgpu::TextureAspect::All,
+                },
                 bytemuck::cast_slice(&zero),
-                eframe::wgpu::TexelCopyBufferLayout { offset: 0, bytes_per_row: Some(4), rows_per_image: Some(1) },
+                eframe::wgpu::TexelCopyBufferLayout {
+                    offset: 0,
+                    bytes_per_row: Some(4),
+                    rows_per_image: Some(1),
+                },
                 size,
             );
         }
@@ -247,18 +363,38 @@ impl FitsViewerApp {
         let texture_view = texture.create_view(&eframe::wgpu::TextureViewDescriptor::default());
 
         let mut renderer = wgpu_state.renderer.write();
-        let res = renderer.callback_resources.get_mut::<FitsGpuResources>().unwrap();
+        let res = renderer
+            .callback_resources
+            .get_mut::<FitsGpuResources>()
+            .unwrap();
 
         let bind_group = device.create_bind_group(&eframe::wgpu::BindGroupDescriptor {
-            label: Some("FITS Bind Group"), layout: &res.bind_group_layout,
+            label: Some("FITS Bind Group"),
+            layout: &res.bind_group_layout,
             entries: &[
-                eframe::wgpu::BindGroupEntry { binding: 0, resource: res.uniform_buffer.as_entire_binding() },
-                eframe::wgpu::BindGroupEntry { binding: 1, resource: eframe::wgpu::BindingResource::TextureView(&texture_view) },
-                eframe::wgpu::BindGroupEntry { binding: 2, resource: eframe::wgpu::BindingResource::Sampler(&res.sampler) },
+                eframe::wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: res.uniform_buffer.as_entire_binding(),
+                },
+                eframe::wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: eframe::wgpu::BindingResource::TextureView(&texture_view),
+                },
+                eframe::wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: eframe::wgpu::BindingResource::Sampler(&res.sampler),
+                },
             ],
         });
 
-        res.texture = texture; res.bind_group = bind_group; res.image_data = image_data_opt; res.bscale = basic_info.bscale; res.bzero = basic_info.bzero; res.width = texture_width; res.height = texture_height; res.current_slice = 0;
+        res.texture = texture;
+        res.bind_group = bind_group;
+        res.image_data = image_data_opt;
+        res.bscale = basic_info.bscale;
+        res.bzero = basic_info.bzero;
+        res.width = texture_width;
+        res.height = texture_height;
+        res.current_slice = 0;
         self.pending_hdu_change = false;
     }
 
@@ -470,6 +606,37 @@ impl FitsViewerApp {
 
         Some((fits_x, fits_y, val))
     }
+
+    fn build_header_table(&self, ui: &mut egui::Ui) {
+        let current_hdu = &self.hdus[&self.current_hdu_index];
+        let header = &current_hdu.header;
+
+        let n_rows = header.cards.len(); 
+
+        egui_extras::TableBuilder::new(ui)
+            .striped(true)
+            .resizable(true)
+            .columns(Column::auto(), 3)
+            .header(20.0, |mut header| {
+                header.col(|ui| { ui.heading("Key"); });
+                header.col(|ui| { ui.heading("Value"); });
+                header.col(|ui| { ui.heading("Comment"); });
+            })
+            .body(|body| {
+                body.rows(18.0, n_rows, |mut row| {
+                    let row_index = row.index();
+                    let card = &header.cards[row_index];
+
+                    row.col(|ui| { ui.label(&card.key); });
+
+                    let val_str = card.value.as_deref().unwrap_or("");
+                    row.col(|ui| { ui.label(val_str); });
+
+                    let comment_str = card.comment.as_deref().unwrap_or("");
+                    row.col(|ui| { ui.label(comment_str); });
+                });
+            });
+    }
 }
 
 impl eframe::App for FitsViewerApp {
@@ -479,7 +646,7 @@ impl eframe::App for FitsViewerApp {
                 self.load_hdu(wgpu_state);
             }
         }
-        
+
         let ctx = ui.ctx().clone();
 
         // ========================
@@ -492,41 +659,55 @@ impl eframe::App for FitsViewerApp {
             // ==========================================
             // 0. HDU SELECTION
             // ==========================================
-            egui::CollapsingHeader::new(egui::RichText::new("📁  HDU Selection").strong().size(13.0))
-                .default_open(true)
-                .show(ui, |ui| {
-                    ui.add_space(2.0);
-                    
-                    let get_hdu_label = |index: usize, hdu: &crate::header::HDU| -> String {
-                        let ext_type = hdu.header.get_value("XTENSION").unwrap_or("PRIMARY");
-                        let clean_ext = ext_type.trim_matches('\'').trim();
-                        format!("HDU {}: {} ({} axes)", index, clean_ext, hdu.basic_info.naxis)
-                    };
+            egui::CollapsingHeader::new(
+                egui::RichText::new("📁  HDU Selection").strong().size(13.0),
+            )
+            .default_open(true)
+            .show(ui, |ui| {
+                ui.add_space(2.0);
 
-                    ui.horizontal(|ui| {
-                        ui.label("HDU:");
-                        egui::ComboBox::new("hdu_combo_box", "")
-                            .selected_text(get_hdu_label(self.current_hdu_index, &self.hdus[&self.current_hdu_index]))
-                            .show_ui(ui, |ui| {
-                                for key in self.hdus.keys() {
-                                    let text = get_hdu_label(*key, &self.hdus[key]);
-                                    if ui.selectable_label(self.current_hdu_index == *key, text).clicked() {
-                                        if self.current_hdu_index != *key {
-                                            self.current_hdu_index = *key;
-                                            self.pending_hdu_change = true;
-                                        }
+                let get_hdu_label = |index: usize, hdu: &crate::header::HDU| -> String {
+                    let ext_type = hdu.header.get_value("XTENSION").unwrap_or("PRIMARY");
+                    let clean_ext = ext_type.trim_matches('\'').trim();
+                    format!(
+                        "HDU {}: {} ({} axes)",
+                        index, clean_ext, hdu.basic_info.naxis
+                    )
+                };
+
+                ui.horizontal(|ui| {
+                    ui.label("HDU:");
+                    egui::ComboBox::new("hdu_combo_box", "")
+                        .selected_text(get_hdu_label(
+                            self.current_hdu_index,
+                            &self.hdus[&self.current_hdu_index],
+                        ))
+                        .show_ui(ui, |ui| {
+                            for key in self.hdus.keys() {
+                                let text = get_hdu_label(*key, &self.hdus[key]);
+                                if ui
+                                    .selectable_label(self.current_hdu_index == *key, text)
+                                    .clicked()
+                                {
+                                    if self.current_hdu_index != *key {
+                                        self.current_hdu_index = *key;
+                                        self.pending_hdu_change = true;
                                     }
                                 }
-                            });
-                    });
-                    
-                    if self.image_data.is_none() {
-                        ui.add_space(4.0);
-                        ui.label(egui::RichText::new("!!No Image Data in this HDU").color(egui::Color32::YELLOW));
-                    }
-                    ui.add_space(4.0);
+                            }
+                        });
                 });
-            
+
+                if self.image_data.is_none() {
+                    ui.add_space(4.0);
+                    ui.label(
+                        egui::RichText::new("!!No Image Data in this HDU")
+                            .color(egui::Color32::YELLOW),
+                    );
+                }
+                ui.add_space(4.0);
+            });
+
             ui.separator();
 
             // ==========================================
@@ -868,12 +1049,28 @@ impl eframe::App for FitsViewerApp {
                         ui.end_row();
                     });
                 ui.add_space(4.0);
-            });
-        });
 
-        // =====================
-        // END RIGHT PANEL
-        // =====================
+                if ui.button("Headers").clicked() {
+                    self.window_header_open = true;
+                }
+
+                let mut is_open = self.window_header_open;
+                if is_open {
+                    egui::Window::new("Headers")
+                        .open(&mut is_open)
+                        .show(&ctx, |ui| self.build_header_table(ui));
+                    self.window_header_open = is_open;
+                }
+            });
+
+            // ######################
+            // 6. SHOW HEADERS BUTTON
+            // ######################
+
+            // =====================
+            // END RIGHT PANEL
+            // =====================
+        });
 
         // =====================
         // BOTTOM COLORBAR PANEL
@@ -1149,6 +1346,7 @@ mod tests {
             recolor_mode: 0,
             posterize_levels: 8.0,
             last_canvas_rect: None,
+            window_header_open: false,
         }
     }
 
