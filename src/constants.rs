@@ -4,7 +4,8 @@ Global constants
 
 pub const FITS_BLOCKSIZE: usize = 2880;
 pub const FITS_CARDSIZE: usize = 80;
-pub const END_CARD: &[u8; 80] = b"END                                                                             ";
+pub const END_CARD: &[u8; 80] =
+    b"END                                                                             ";
 
 pub const DEFAULT_FIND_DATA_MAX_RECURSIONS: usize = 128;
 

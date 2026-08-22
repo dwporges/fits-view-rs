@@ -2,7 +2,6 @@ use thiserror::Error;
 
 use crate::constants::FITS_CARDSIZE;
 
-
 #[derive(Error, Debug)]
 pub enum FitsError {
     #[error("Invalid card length: expected {FITS_CARDSIZE}, got {0}")]
@@ -10,13 +9,13 @@ pub enum FitsError {
 
     #[error("Invalid header card: missing '=' separator")]
     MissingEqualSign,
-    
+
     #[error("Failed to parse header value: {0}")]
     ParseError(#[from] std::num::ParseFloatError),
-    
+
     #[error("Invalid UTF-8 sequence")]
     Utf8Error(#[from] std::str::Utf8Error),
-    
+
     #[error("Unexpected end of file")]
     UnexpectedEof,
 
@@ -44,4 +43,3 @@ pub enum FitsError {
     #[error("3D Datacubes are not supported")]
     NAxis3Error,
 }
-

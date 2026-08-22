@@ -1,9 +1,9 @@
 pub mod constants;
+pub mod errors;
+pub mod gui;
 pub mod header;
 pub mod headers;
 pub mod image;
-pub mod errors;
-pub mod gui;
 pub mod wcs;
 
 use std::fs::File;
@@ -11,13 +11,12 @@ use std::sync::Arc;
 
 #[allow(deprecated)]
 use crate::gui::glow_gui;
-use crate::{gui::wgpu_gui, image::image::FitsData};
 use crate::header::mparser::crawl;
 use crate::image::*;
+use crate::{gui::wgpu_gui, image::image::FitsData};
 use clap::Parser;
 
 use env_logger;
-
 
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
@@ -51,14 +50,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let native_options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default().with_maximized(true),
         renderer: eframe::Renderer::Wgpu,
-        ..eframe::NativeOptions::default() 
+        ..eframe::NativeOptions::default()
     };
 
     match args.use_glow {
         false => {
-            eframe::run_native(wgpu_gui::FitsViewerApp::name(), 
-            native_options, 
-            Box::new(move |cc| { 
+            eframe::run_native(wgpu_gui::FitsViewerApp::name(),
+            native_options,
+            Box::new(move |cc| {
                 let wgpu_render_state = cc.wgpu_render_state.as_ref()
                     .expect("Failed to initialise Wgpu renderer. Ensure your GPU supports Vulkan/Metal/DX12.");
 
@@ -73,7 +72,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         true => {
             let mut user_choice = String::new();
-            println!("Warning: GLOW backend is not developed and may not work. Are you sure you want to use it? (y/n)");
+            println!(
+                "Warning: GLOW backend is not developed and may not work. Are you sure you want to use it? (y/n)"
+            );
 
             std::io::stdin()
                 .read_line(&mut user_choice)
@@ -84,26 +85,44 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     let hdu = &hdus[hdu_n];
                     let basic_info = &hdu.basic_info;
                     let image_data_ref = hdu.data.as_ref().map(|m| m.as_ref()).unwrap_or(&[]);
-                    let physical_values = FitsData::new(image_data_ref, basic_info.bitpix as i32).unwrap();
+                    let physical_values =
+                        FitsData::new(image_data_ref, basic_info.bitpix as i32).unwrap();
                     let image_data: Arc<FitsData> = Arc::from(physical_values);
                     let width = basic_info.axes.get(0).copied().unwrap_or(1);
                     let height = basic_info.axes.get(1).copied().unwrap_or(1);
                     let bscale = basic_info.bscale;
                     let bzero = basic_info.bzero;
-                    let plane_count = if basic_info.naxis <= 2 { 1 } else { basic_info.axes[2..].iter().product() };
-                    let slice_f64 = (0..width*height).map(|i| image_data.get_f64_pixel(i + args.slice * width * height, bscale, bzero)).collect::<Vec<f64>>();
+                    let plane_count = if basic_info.naxis <= 2 {
+                        1
+                    } else {
+                        basic_info.axes[2..].iter().product()
+                    };
+                    let slice_f64 = (0..width * height)
+                        .map(|i| {
+                            image_data.get_f64_pixel(i + args.slice * width * height, bscale, bzero)
+                        })
+                        .collect::<Vec<f64>>();
                     let image_data_f64: Arc<[f64]> = Arc::from(slice_f64);
                     eframe::run_native(
-                    glow_gui::FitsViewerApp::name(), 
-                    native_options, 
-                    Box::new(move |cc| Ok(Box::new(glow_gui::FitsViewerApp::new(cc, width, height, image_data_f64.clone(), args.slice, plane_count)))))
+                        glow_gui::FitsViewerApp::name(),
+                        native_options,
+                        Box::new(move |cc| {
+                            Ok(Box::new(glow_gui::FitsViewerApp::new(
+                                cc,
+                                width,
+                                height,
+                                image_data_f64.clone(),
+                                args.slice,
+                                plane_count,
+                            )))
+                        }),
+                    )
                     .unwrap();
-                } 
-                _ => return Ok(())
+                }
+                _ => return Ok(()),
             }
         }
     }
     // img.save(args.image_filename).unwrap();
     Ok(())
 }
-

@@ -19,17 +19,17 @@ impl FitsData {
                 let mut data = vec![0; bytes.len() / 2];
                 BigEndian::read_i16_into(bytes, &mut data);
                 Ok(FitsData::I16(data))
-            },
+            }
             32 => {
                 let mut data = vec![0; bytes.len() / 4];
                 BigEndian::read_i32_into(bytes, &mut data);
                 Ok(FitsData::I32(data))
-            },
+            }
             64 => {
                 let mut data = vec![0; bytes.len() / 8];
                 BigEndian::read_i64_into(bytes, &mut data);
                 Ok(FitsData::I64(data))
-            },
+            }
             -32 => {
                 let mut data = vec![0.0; bytes.len() / 4];
                 BigEndian::read_f32_into(bytes, &mut data);
@@ -39,13 +39,19 @@ impl FitsData {
                 let mut data = vec![0.0; bytes.len() / 8];
                 BigEndian::read_f64_into(bytes, &mut data);
                 Ok(FitsData::F64(data))
-            },
-            _ => bail!("Invalid BITPIX {}", bitpix),          
+            }
+            _ => bail!("Invalid BITPIX {}", bitpix),
         }
     }
 
     // Returns a Vec<f32> to feed to the GPU rendering pipeline
-    pub fn get_f32_slice(&self, offset: usize, plane_size: usize, bscale: f64, bzero: f64) -> Vec<f32> {
+    pub fn get_f32_slice(
+        &self,
+        offset: usize,
+        plane_size: usize,
+        bscale: f64,
+        bzero: f64,
+    ) -> Vec<f32> {
         match self {
             FitsData::U8(data) => data[offset..offset + plane_size]
                 .iter()
@@ -91,18 +97,27 @@ impl FitsData {
     }
 
     // Computes the (min, max) for a specific range/slice
-    pub fn get_slice_min_max(&self, offset: usize, length: usize, bscale: f64, bzero: f64) -> (f64, f64) {
+    pub fn get_slice_min_max(
+        &self,
+        offset: usize,
+        length: usize,
+        bscale: f64,
+        bzero: f64,
+    ) -> (f64, f64) {
         macro_rules! compute_min_max {
             ($data:expr) => {{
-                $data[offset..offset + length].iter().fold((f64::INFINITY, f64::NEG_INFINITY), |(min, max), &v| {
-                    let val = (v as f64 * bscale) + bzero;
-                    if val.is_finite() {
-                        (min.min(val), max.max(val))
-                    } else {
-                        (min, max)
-                    }
-                })
-            }}
+                $data[offset..offset + length].iter().fold(
+                    (f64::INFINITY, f64::NEG_INFINITY),
+                    |(min, max), &v| {
+                        let val = (v as f64 * bscale) + bzero;
+                        if val.is_finite() {
+                            (min.min(val), max.max(val))
+                        } else {
+                            (min, max)
+                        }
+                    },
+                )
+            }};
         }
 
         match self {
@@ -126,7 +141,6 @@ impl FitsData {
         }
     }
 }
-
 
 pub fn get_physical_values(bytes: &[u8], bitpix: i32, bscale: f64, bzero: f64) -> Result<Vec<f64>> {
     match bitpix {

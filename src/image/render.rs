@@ -35,7 +35,8 @@ impl egui_wgpu::CallbackTrait for FitsRenderCallback {
             let offset = self.slice_index * plane_size;
             if let Some(image_data) = &gpu_res.image_data {
                 if offset + plane_size <= image_data.len() {
-                    let slice_data = image_data.get_f32_slice(offset, plane_size, gpu_res.bscale, gpu_res.bzero);
+                    let slice_data =
+                        image_data.get_f32_slice(offset, plane_size, gpu_res.bscale, gpu_res.bzero);
                     let size = eframe::wgpu::Extent3d {
                         width: gpu_res.width.max(1),
                         height: gpu_res.height.max(1),

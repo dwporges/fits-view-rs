@@ -1,34 +1,32 @@
-use anyhow::{Context, Result};
 use crate::constants::{END_CARD, FITS_BLOCKSIZE, FITS_CARDSIZE};
 use crate::header::{BasicHDUInfo, Card, FitsHeader, HDU};
+use anyhow::{Context, Result};
+use indexmap::IndexMap;
+use log::debug;
 use std::fs::File;
 use std::io::{Read, Seek, SeekFrom};
-use log::{debug};
-use indexmap::IndexMap;
-
-
 
 pub fn crawl(file: &mut File) -> Result<IndexMap<usize, HDU>> {
     let mut buf = [0u8; FITS_BLOCKSIZE];
     let mut hdus: IndexMap<usize, HDU> = IndexMap::new();
-    
+
     let mut cards: Vec<Card> = Vec::new();
     let mut current_hdu_idx: usize = 0;
-    
+
     loop {
-        if file.read(&mut buf).context("Error reading file")? == 0 { 
-            break; 
+        if file.read(&mut buf).context("Error reading file")? == 0 {
+            break;
         }
-        
+
         debug!("Reading HDU {} block", current_hdu_idx);
-        
+
         for card_slice in buf.chunks_exact(FITS_CARDSIZE) {
             let card_array: &[u8; FITS_CARDSIZE] = card_slice
                 .try_into()
                 .expect("FITS block was not perfectly divisible by CARDSIZE");
-                
+
             cards.push(Card::from_bytes(card_array));
-            
+
             if card_array == END_CARD {
                 debug!("Hit END card for HDU {}", current_hdu_idx);
 
@@ -46,19 +44,19 @@ pub fn crawl(file: &mut File) -> Result<IndexMap<usize, HDU>> {
                         memmap2::MmapOptions::new()
                             .offset(data_offset)
                             .len(data_byte_length)
-                            .map(&*file)? 
+                            .map(&*file)?
                     };
                     Some(mmap)
                 } else {
                     None
                 };
-                
+
                 let hdu = HDU {
                     hdu_index: current_hdu_idx,
                     n_blocks: data_n_blocks,
                     total_size: data_byte_length,
                     data: mmap_data,
-                    header, 
+                    header,
                     basic_info,
                 };
 
@@ -72,11 +70,11 @@ pub fn crawl(file: &mut File) -> Result<IndexMap<usize, HDU>> {
                 current_hdu_idx += 1;
                 cards = Vec::new(); // Re-instantiate a fresh vector for the next HDU
 
-                break; 
+                break;
             }
         }
     }
-    
+
     Ok(hdus)
 }
 
