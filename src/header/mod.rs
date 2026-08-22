@@ -16,8 +16,12 @@ pub struct BasicHDUInfo {
 
 impl BasicHDUInfo {
     pub fn from_header(header: &FitsHeader) -> Result<Self> {
-        let bitpix: isize = header.get(HEADER_BITPIX).context("Missing mandatory BITPIX header")?;
-        let naxis: usize = header.get(HEADER_NAXIS).context("Missing mandatory NAXIS header")?;
+        let bitpix: isize = header
+            .get(HEADER_BITPIX)
+            .context("Missing mandatory BITPIX header")?;
+        let naxis: usize = header
+            .get(HEADER_NAXIS)
+            .context("Missing mandatory NAXIS header")?;
         let bscale: f64 = header.get_float(HEADER_BSCALE).unwrap_or(1.0);
         let bzero: f64 = header.get_float(HEADER_BZERO).unwrap_or(0.0);
         let pcount: usize = header.get(HEADER_PCOUNT).unwrap_or(0);
@@ -27,12 +31,13 @@ impl BasicHDUInfo {
 
         for i in 1..=naxis {
             let axis_key = format!("NAXIS{}", i);
-            let axis_len: usize = header
-                .get(&axis_key)
-                .context(format!("HDU has {} axes but {} header is not preset", naxis, axis_key))?;
+            let axis_len: usize = header.get(&axis_key).context(format!(
+                "HDU has {} axes but {} header is not preset",
+                naxis, axis_key
+            ))?;
 
             axes.push(axis_len);
-        };
+        }
 
         let n_pixels = if naxis == 0 { 0 } else { axes.iter().product() };
         let n_bytes = (bitpix.abs() as usize / 8) * gcount * (pcount + n_pixels);
@@ -72,7 +77,8 @@ pub struct Card {
 
 impl FitsHeader {
     pub fn get_value(&self, key: &str) -> Option<&str> {
-        self.cards.iter()
+        self.cards
+            .iter()
             .find(|card| card.key == key)
             .and_then(|card| card.value.as_deref())
     }
@@ -85,7 +91,7 @@ impl FitsHeader {
         self.get_value(key)?.parse::<f64>().ok()
     }
 
-    pub fn get<T: FromStr>(&self, key: &str) -> Option<T> { 
+    pub fn get<T: FromStr>(&self, key: &str) -> Option<T> {
         self.get_value(key)?.parse::<T>().ok()
     }
 }
@@ -101,26 +107,24 @@ impl Card {
         if card[8] == b'=' {
             // Bytes 9..80 contain the value and comment
             let rest = &card[9..80];
-            
+
             // Split into exactly 2 parts on the first '/'
             let mut parts = rest.splitn(2, |&b| b == b'/');
 
             // Handle the value (everything before the '/')
             if let Some(val_bytes) = parts.next() {
                 let mut val_str = String::from_utf8_lossy(val_bytes).trim().to_string();
-                
+
                 if !val_str.is_empty() {
                     // If it starts and ends with a single quote, it's a FITS string.
                     if val_str.starts_with('\'') && val_str.ends_with('\'') {
                         // Strip the quotes and any extra padding spaces inside them
-                        val_str = val_str[1..val_str.len()-1].trim().to_string();
-                    } 
-
+                        val_str = val_str[1..val_str.len() - 1].trim().to_string();
+                    }
                     // If it's not a string, replace any 'D' with 'E' so Rust can parse it as a float
                     else if val_str.contains('D') {
                         val_str = val_str.replace('D', "E");
                     }
-
                     // Convert "T" / "F" to Rust-parsable "true" / "false"
                     else if val_str == "T" {
                         val_str = "true".to_string();
