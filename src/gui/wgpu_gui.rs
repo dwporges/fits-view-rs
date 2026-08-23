@@ -37,29 +37,8 @@ impl FitsViewerApp {
                 slice_index,
                 max_slices: 1,
             },
-            render: crate::gui::state::RenderSettings {
-                min: 0.0,
-                max: 1.0,
-                bscale: 1.0,
-                bzero: 0.0,
-                black_point: 0.0,
-                white_point: 1.0,
-                scaling_method: Scaling::ASINH,
-                recolor_mode: 0,
-                posterize_levels: 8.0,
-                invert: false,
-                bias: 0.5,
-                contrast: 1.0,
-                lock_bias: false,
-                lock_contrast: false,
-            },
-            viewport: crate::gui::state::ViewportState {
-                pan: egui::Vec2::ZERO,
-                zoom: 1.0,
-                rotation: 0.0,
-                last_canvas_rect: None,
-                window_header_open: false,
-            },
+            render: crate::gui::state::RenderSettings::default(),
+            viewport: crate::gui::state::ViewportState::default(),
         };
 
         let wgpu_state = cc
