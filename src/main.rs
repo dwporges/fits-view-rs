@@ -29,8 +29,6 @@ struct Args {
     slice: usize,
     #[arg(short, long, default_value_t = String::from("out.png"))]
     image_filename: String,
-    #[arg(long)]
-    use_glow: bool,
 }
 
 #[allow(deprecated)]
