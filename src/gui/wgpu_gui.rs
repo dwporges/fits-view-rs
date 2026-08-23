@@ -48,169 +48,12 @@ impl FitsViewerApp {
         let device = &wgpu_state.device;
         let target_format = &wgpu_state.target_format;
 
-        let uniforms = ShaderUniforms {
-            bp: 0.0,
-            wp: 1.0,
-            pan: [0.0, 0.0],
-            zoom: 1.0,
-            rotation: 0.0,
-            aspect_scale: [1.0, 1.0],
-            bias: 0.5,
-            contrast: 1.0,
-            posterize_levels: 8.0,
-            scaling_mode: 3,
-            recolor_mode: 0,
-            invert: 0,
-            _pad0: 0.0,
-            _pad1: 0.0,
-        };
-
-        use eframe::wgpu::util::DeviceExt;
-        let uniform_buffer = device.create_buffer_init(&eframe::wgpu::util::BufferInitDescriptor {
-            label: Some("FITS Uniform Buffer"),
-            contents: bytemuck::cast_slice(&[uniforms]),
-            usage: eframe::wgpu::BufferUsages::UNIFORM | eframe::wgpu::BufferUsages::COPY_DST,
-        });
-
-        let bind_group_layout =
-            device.create_bind_group_layout(&eframe::wgpu::BindGroupLayoutDescriptor {
-                label: Some("FITS Bind Group Layout"),
-                entries: &[
-                    eframe::wgpu::BindGroupLayoutEntry {
-                        binding: 0,
-                        visibility: eframe::wgpu::ShaderStages::FRAGMENT,
-                        ty: eframe::wgpu::BindingType::Buffer {
-                            ty: eframe::wgpu::BufferBindingType::Uniform,
-                            has_dynamic_offset: false,
-                            min_binding_size: None,
-                        },
-                        count: None,
-                    },
-                    eframe::wgpu::BindGroupLayoutEntry {
-                        binding: 1,
-                        visibility: eframe::wgpu::ShaderStages::FRAGMENT,
-                        ty: eframe::wgpu::BindingType::Texture {
-                            sample_type: eframe::wgpu::TextureSampleType::Float {
-                                filterable: false,
-                            },
-                            view_dimension: eframe::wgpu::TextureViewDimension::D2,
-                            multisampled: false,
-                        },
-                        count: None,
-                    },
-                    eframe::wgpu::BindGroupLayoutEntry {
-                        binding: 2,
-                        visibility: eframe::wgpu::ShaderStages::FRAGMENT,
-                        ty: eframe::wgpu::BindingType::Sampler(
-                            eframe::wgpu::SamplerBindingType::NonFiltering,
-                        ),
-                        count: None,
-                    },
-                ],
-            });
-
-        let size = eframe::wgpu::Extent3d {
-            width: 1,
-            height: 1,
-            depth_or_array_layers: 1,
-        };
-        let texture = device.create_texture(&eframe::wgpu::TextureDescriptor {
-            label: Some("FITS Raw Data Texture"),
-            size,
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: eframe::wgpu::TextureDimension::D2,
-            format: eframe::wgpu::TextureFormat::R32Float,
-            usage: eframe::wgpu::TextureUsages::TEXTURE_BINDING
-                | eframe::wgpu::TextureUsages::COPY_DST,
-            view_formats: &[],
-        });
-
-        let texture_view = texture.create_view(&eframe::wgpu::TextureViewDescriptor::default());
-        let sampler = device.create_sampler(&eframe::wgpu::SamplerDescriptor {
-            address_mode_u: eframe::wgpu::AddressMode::ClampToEdge,
-            address_mode_v: eframe::wgpu::AddressMode::ClampToEdge,
-            address_mode_w: eframe::wgpu::AddressMode::ClampToEdge,
-            mag_filter: eframe::wgpu::FilterMode::Nearest,
-            min_filter: eframe::wgpu::FilterMode::Nearest,
-            ..Default::default()
-        });
-
-        let bind_group = device.create_bind_group(&eframe::wgpu::BindGroupDescriptor {
-            label: Some("FITS Bind Group"),
-            layout: &bind_group_layout,
-            entries: &[
-                eframe::wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: uniform_buffer.as_entire_binding(),
-                },
-                eframe::wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: eframe::wgpu::BindingResource::TextureView(&texture_view),
-                },
-                eframe::wgpu::BindGroupEntry {
-                    binding: 2,
-                    resource: eframe::wgpu::BindingResource::Sampler(&sampler),
-                },
-            ],
-        });
-
-        let pipeline_layout =
-            device.create_pipeline_layout(&eframe::wgpu::PipelineLayoutDescriptor {
-                label: Some("FITS Pipeline Layout"),
-                bind_group_layouts: &[Some(&bind_group_layout)],
-                immediate_size: 0,
-            });
-
-        let shader = device.create_shader_module(eframe::wgpu::ShaderModuleDescriptor {
-            label: Some("FITS Shader"),
-            source: eframe::wgpu::ShaderSource::Wgsl(WGPU_SHADER_SOURCE.into()),
-        });
-
-        let pipeline = device.create_render_pipeline(&eframe::wgpu::RenderPipelineDescriptor {
-            label: Some("FITS Render Pipeline"),
-            layout: Some(&pipeline_layout),
-            vertex: eframe::wgpu::VertexState {
-                module: &shader,
-                entry_point: Some("vs_main"),
-                buffers: &[],
-                compilation_options: Default::default(),
-            },
-            fragment: Some(eframe::wgpu::FragmentState {
-                module: &shader,
-                entry_point: Some("fs_main"),
-                targets: &[Some(eframe::wgpu::ColorTargetState {
-                    format: *target_format,
-                    blend: Some(eframe::wgpu::BlendState::REPLACE),
-                    write_mask: eframe::wgpu::ColorWrites::ALL,
-                })],
-                compilation_options: Default::default(),
-            }),
-            primitive: eframe::wgpu::PrimitiveState::default(),
-            depth_stencil: None,
-            multisample: eframe::wgpu::MultisampleState::default(),
-            multiview_mask: None,
-            cache: None,
-        });
-
-        wgpu_state
-            .renderer
-            .write()
-            .callback_resources
-            .insert(FitsGpuResources {
-                pipeline,
-                bind_group,
-                uniform_buffer,
-                bind_group_layout,
-                sampler,
-                texture,
-                current_slice: 0,
-                image_data: None,
-                bscale: 1.0,
-                bzero: 0.0,
-                width: 1,
-                height: 1,
-            });
+        let res = crate::gui::render_setup::setup_wgpu_resources(
+            device,
+            target_format,
+            WGPU_SHADER_SOURCE,
+        );
+        wgpu_state.renderer.write().callback_resources.insert(res);
 
         app
     }
@@ -255,103 +98,15 @@ impl FitsViewerApp {
         self.viewport.pan = egui::Vec2::ZERO;
         self.viewport.zoom = 1.0;
 
-        let device = &wgpu_state.device;
-        let queue = &wgpu_state.queue;
+        crate::gui::render_setup::update_wgpu_texture(
+            wgpu_state,
+            width,
+            height,
+            basic_info.bscale,
+            basic_info.bzero,
+            image_data_opt,
+        );
 
-        let texture_width = width.max(1) as u32;
-        let texture_height = height.max(1) as u32;
-        let size = eframe::wgpu::Extent3d {
-            width: texture_width,
-            height: texture_height,
-            depth_or_array_layers: 1,
-        };
-
-        let texture = device.create_texture(&eframe::wgpu::TextureDescriptor {
-            label: Some("FITS Raw Data Texture"),
-            size,
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: eframe::wgpu::TextureDimension::D2,
-            format: eframe::wgpu::TextureFormat::R32Float,
-            usage: eframe::wgpu::TextureUsages::TEXTURE_BINDING
-                | eframe::wgpu::TextureUsages::COPY_DST,
-            view_formats: &[],
-        });
-
-        let plane_size = width * height;
-
-        if let Some(data) = &image_data_opt {
-            let initial_slice =
-                data.get_f32_slice(0, plane_size, basic_info.bscale, basic_info.bzero);
-            queue.write_texture(
-                eframe::wgpu::TexelCopyTextureInfo {
-                    texture: &texture,
-                    mip_level: 0,
-                    origin: eframe::wgpu::Origin3d::ZERO,
-                    aspect: eframe::wgpu::TextureAspect::All,
-                },
-                bytemuck::cast_slice(&initial_slice),
-                eframe::wgpu::TexelCopyBufferLayout {
-                    offset: 0,
-                    bytes_per_row: Some(4 * texture_width),
-                    rows_per_image: Some(texture_height),
-                },
-                size,
-            );
-        } else {
-            let zero: [f32; 1] = [0.0];
-            queue.write_texture(
-                eframe::wgpu::TexelCopyTextureInfo {
-                    texture: &texture,
-                    mip_level: 0,
-                    origin: eframe::wgpu::Origin3d::ZERO,
-                    aspect: eframe::wgpu::TextureAspect::All,
-                },
-                bytemuck::cast_slice(&zero),
-                eframe::wgpu::TexelCopyBufferLayout {
-                    offset: 0,
-                    bytes_per_row: Some(4),
-                    rows_per_image: Some(1),
-                },
-                size,
-            );
-        }
-
-        let texture_view = texture.create_view(&eframe::wgpu::TextureViewDescriptor::default());
-
-        let mut renderer = wgpu_state.renderer.write();
-        let res = renderer
-            .callback_resources
-            .get_mut::<FitsGpuResources>()
-            .unwrap();
-
-        let bind_group = device.create_bind_group(&eframe::wgpu::BindGroupDescriptor {
-            label: Some("FITS Bind Group"),
-            layout: &res.bind_group_layout,
-            entries: &[
-                eframe::wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: res.uniform_buffer.as_entire_binding(),
-                },
-                eframe::wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: eframe::wgpu::BindingResource::TextureView(&texture_view),
-                },
-                eframe::wgpu::BindGroupEntry {
-                    binding: 2,
-                    resource: eframe::wgpu::BindingResource::Sampler(&res.sampler),
-                },
-            ],
-        });
-
-        res.texture = texture;
-        res.bind_group = bind_group;
-        res.image_data = image_data_opt;
-        res.bscale = basic_info.bscale;
-        res.bzero = basic_info.bzero;
-        res.width = texture_width;
-        res.height = texture_height;
-        res.current_slice = 0;
         self.image.pending_hdu_change = false;
     }
 
@@ -370,67 +125,7 @@ impl FitsViewerApp {
         shader_source: String,
     ) -> Result<(), String> {
         let wgpu_state = frame.wgpu_render_state().expect("WGPU must be enabled");
-        let device = &wgpu_state.device;
-
-        let error_scope = device.push_error_scope(wgpu::ErrorFilter::Validation);
-
-        let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("FITS Custom Shader"),
-            source: wgpu::ShaderSource::Wgsl(shader_source.into()),
-        });
-
-        let mut renderer = wgpu_state.renderer.write();
-        let bind_group_layout = renderer
-            .callback_resources
-            .get::<FitsGpuResources>()
-            .unwrap()
-            .bind_group_layout
-            .clone();
-
-        let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-            label: Some("FITS Pipeline Layout"),
-            bind_group_layouts: &[Some(&bind_group_layout)],
-            immediate_size: 0,
-        });
-
-        let new_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("FITS Render Pipeline"),
-            layout: Some(&pipeline_layout),
-            vertex: wgpu::VertexState {
-                module: &shader,
-                entry_point: Some("vs_main"),
-                buffers: &[],
-                compilation_options: Default::default(),
-            },
-            fragment: Some(wgpu::FragmentState {
-                module: &shader,
-                entry_point: Some("fs_main"),
-                targets: &[Some(wgpu::ColorTargetState {
-                    format: wgpu_state.target_format,
-                    blend: Some(wgpu::BlendState::REPLACE),
-                    write_mask: wgpu::ColorWrites::ALL,
-                })],
-                compilation_options: Default::default(),
-            }),
-            primitive: wgpu::PrimitiveState::default(),
-            depth_stencil: None,
-            multisample: wgpu::MultisampleState::default(),
-            multiview_mask: None,
-            cache: None,
-        });
-
-        // create_shader_module never fails synchronously -- WGSL errors surface through
-        // the error scope instead, so we have to check it explicitly.
-        if let Some(err) = pollster::block_on(error_scope.pop()) {
-            return Err(err.to_string());
-        }
-
-        renderer
-            .callback_resources
-            .get_mut::<FitsGpuResources>()
-            .unwrap()
-            .pipeline = new_pipeline;
-        Ok(())
+        crate::gui::render_setup::recompile_wgpu_shader(wgpu_state, shader_source)
     }
 
     pub fn name() -> &'static str {
