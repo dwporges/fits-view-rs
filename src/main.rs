@@ -7,11 +7,10 @@ pub mod image;
 pub mod wcs;
 
 use std::fs::File;
-use std::sync::Arc;
 
+use crate::gui::wgpu_gui;
 use crate::header::mparser::crawl;
 use crate::image::*;
-use crate::{gui::wgpu_gui, image::image::FitsData};
 use clap::Parser;
 
 use env_logger;

@@ -1,13 +1,9 @@
 use crate::header::HDU;
 use crate::image::image::FitsData;
-use crate::image::render::{
-    FitsGpuResources, ShaderUniforms, build_shader_source, sample_colormap,
-};
+use crate::image::render::build_shader_source;
 use crate::image::scalars::Scaling;
 use crate::image::wgpu_shader_source::WGPU_SHADER_SOURCE;
-use crate::render::FitsRenderCallback;
-use eframe::{egui, wgpu};
-use egui_extras::Column;
+use eframe::egui;
 use indexmap::IndexMap;
 use std::sync::Arc;
 
