@@ -1,6 +1,3 @@
-#[deprecated]
-pub mod glow_gui;
-
 pub mod components;
 pub mod render_setup;
 pub mod state;

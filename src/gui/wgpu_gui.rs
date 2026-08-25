@@ -22,6 +22,23 @@ impl FitsViewerApp {
     ) -> Self {
         egui_extras::install_image_loaders(&cc.egui_ctx);
 
+        let mut fonts = egui::FontDefinitions::default();
+        fonts.font_data.insert(
+            "HackNerdFont".to_owned(),
+            egui::FontData::from_static(include_bytes!("../../assets/fonts/HackNerdFont-Regular.ttf")).into(),
+        );
+        fonts
+            .families
+            .get_mut(&egui::FontFamily::Proportional)
+            .unwrap()
+            .insert(0, "HackNerdFont".to_owned());
+        fonts
+            .families
+            .get_mut(&egui::FontFamily::Monospace)
+            .unwrap()
+            .insert(0, "HackNerdFont".to_owned());
+        cc.egui_ctx.set_fonts(fonts);
+
         let mut app = Self {
             image: crate::gui::state::ImageData {
                 hdus,
@@ -315,6 +332,7 @@ mod tests {
                 rotation: 0.0,
                 last_canvas_rect: None,
                 window_header_open: false,
+                header_table_state: crate::gui::utils::TableState::new(3),
             },
         }
     }
