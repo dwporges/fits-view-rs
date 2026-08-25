@@ -1,5 +1,4 @@
 pub mod constants;
-pub mod errors;
 pub mod gui;
 pub mod header;
 pub mod headers;

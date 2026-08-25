@@ -60,6 +60,7 @@ pub struct ViewportState {
     pub rotation: f32,
     pub last_canvas_rect: Option<egui::Rect>,
     pub window_header_open: bool,
+    pub header_table_state: crate::gui::utils::TableState,
 }
 
 impl Default for ViewportState {
@@ -70,6 +71,7 @@ impl Default for ViewportState {
             rotation: 0.0,
             last_canvas_rect: None,
             window_header_open: false,
+            header_table_state: crate::gui::utils::TableState::new(3),
         }
     }
 }

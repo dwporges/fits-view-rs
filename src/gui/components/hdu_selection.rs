@@ -53,15 +53,18 @@ pub fn show(
             }
             ui.add_space(4.0);
 
-            if ui.button("Headers").clicked() {
+            if ui.button("Header").clicked() {
                 viewport.window_header_open = true;
             }
 
             let mut is_open = viewport.window_header_open;
             if is_open {
-                egui::Window::new("Headers")
+                egui::Window::new("Header")
                     .open(&mut is_open)
-                    .show(ctx, |ui| build_header_table(ui, image));
+                    .default_size([700.0, 500.0])
+                    .show(ctx, |ui| {
+                        build_header_table(ui, image, &mut viewport.header_table_state)
+                    });
                 viewport.window_header_open = is_open;
             }
         });
