@@ -1,7 +1,6 @@
 use crate::header::HDU;
 use crate::image::image::FitsData;
 use crate::image::render::build_shader_source;
-use crate::image::scalars::Scaling;
 use crate::image::wgpu_shader_source::WGPU_SHADER_SOURCE;
 use eframe::egui;
 use indexmap::IndexMap;
@@ -25,7 +24,10 @@ impl FitsViewerApp {
         let mut fonts = egui::FontDefinitions::default();
         fonts.font_data.insert(
             "HackNerdFont".to_owned(),
-            egui::FontData::from_static(include_bytes!("../../assets/fonts/HackNerdFont-Regular.ttf")).into(),
+            egui::FontData::from_static(include_bytes!(
+                "../../assets/fonts/HackNerdFont-Regular.ttf"
+            ))
+            .into(),
         );
         fonts
             .families
@@ -39,7 +41,7 @@ impl FitsViewerApp {
             .insert(0, "HackNerdFont".to_owned());
         cc.egui_ctx.set_fonts(fonts);
 
-        let mut app = Self {
+        let app = Self {
             image: crate::gui::state::ImageData {
                 hdus,
                 current_hdu_index: hdu_index,
@@ -297,6 +299,7 @@ impl eframe::App for FitsViewerApp {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::image::scalars::Scaling;
 
     fn create_test_app(width: usize, height: usize, slices: usize) -> FitsViewerApp {
         FitsViewerApp {
